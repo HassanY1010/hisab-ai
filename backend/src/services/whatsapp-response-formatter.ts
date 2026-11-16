@@ -33,20 +33,25 @@ export interface WhatsAppReviewParams {
 
 export class WhatsAppResponseFormatter {
   /**
-   * Masks a bank account to show only the last 4 digits for privacy:
-   * e.g. "0001 2932 0506 1363" -> "**** 0001" or last 4 digits
+   * Masks a bank account to show only the last 4 digits for privacy and compliance:
+   * e.g. "0001 2932 0506 1363" -> "**** 0001"
    */
   public static maskAccount(account: string | null | undefined): string | null {
     if (!account) return null;
-    const digitsOnly = account.replace(/\D/g, '');
-    if (digitsOnly.length >= 4) {
-      // In Bankak Sudanese receipts, the account ending is often written at the start or end of the group
-      // E.g. "0001 2932 0506 1363" -> ending is 0001
-      const parts = account.trim().split(/\s+/);
-      const lastPart = parts[0].length === 4 ? parts[0] : parts[parts.length - 1];
-      return `\`**** ${lastPart}\``;
+    const trimmed = account.trim();
+    if (!trimmed) return null;
+
+    const parts = trimmed.split(/\s+/);
+    // In Sudanese Bankak receipts, check 4-digit components or trailing digits
+    if (parts.length > 1 && parts[0].length === 4 && /^\d{4}$/.test(parts[0])) {
+      return `\`**** ${parts[0]}\``;
     }
-    return `\`${account}\``;
+    const digitsOnly = trimmed.replace(/\D/g, '');
+    if (digitsOnly.length >= 4) {
+      const last4 = digitsOnly.slice(-4);
+      return `\`**** ${last4}\``;
+    }
+    return `\`${trimmed}\``;
   }
 
   /**
@@ -62,9 +67,11 @@ export class WhatsAppResponseFormatter {
    */
   public static formatSuccess(params: WhatsAppSuccessParams): string {
     const isOutward = params.direction === 'OUTWARD';
-    const dirLabel = isOutward ? '*صادر (مدفوع)*' : '*وارد (مستلم)*';
-    const maskedAccount = this.maskAccount(params.receiverAccount || params.senderAccount);
+    const dirLabel = isOutward ? '*صادر (مرسل)*' : '*وارد (مستلم)*';
+    const rawAccount = isOutward ? (params.receiverAccount || params.senderAccount) : (params.receiverAccount || params.senderAccount);
+    const maskedAccount = this.maskAccount(rawAccount);
     const accountLabel = isOutward ? 'الحساب المحوّل إليه' : 'الحساب المستلم';
+    const personLabel = isOutward ? 'اسم المرسل إليه' : 'اسم المستفيد';
 
     const lines: string[] = [
       '✅ *تم تسجيل الإشعار البنكي بنجاح*',
@@ -76,14 +83,15 @@ export class WhatsAppResponseFormatter {
       `▫️ نوع العملية: ${dirLabel}`
     ];
 
-    if (params.dateStr) {
-      lines.push(`▫️ تاريخ الإشعار: ${params.dateStr}`);
+    // Only display fields if reliably extracted
+    if (params.dateStr && params.dateStr.trim().length > 0) {
+      lines.push(`▫️ تاريخ الإشعار: ${params.dateStr.trim()}`);
     }
-    if (params.timeStr) {
-      lines.push(`▫️ وقت الإشعار: ${params.timeStr}`);
+    if (params.timeStr && params.timeStr.trim().length > 0) {
+      lines.push(`▫️ وقت الإشعار: ${params.timeStr.trim()}`);
     }
     if (params.beneficiaryName && params.beneficiaryName.trim().length > 1) {
-      lines.push(`▫️ اسم المستفيد: ${params.beneficiaryName.trim()}`);
+      lines.push(`▫️ ${personLabel}: ${params.beneficiaryName.trim()}`);
     }
     if (maskedAccount) {
       lines.push(`▫️ ${accountLabel}: ${maskedAccount}`);
@@ -115,12 +123,12 @@ export class WhatsAppResponseFormatter {
       `▫️ المبلغ: ${this.formatAmount(params.amount)}`
     ];
 
-    if (params.dateStr) {
-      lines.push(`▫️ تاريخ الإشعار: ${params.dateStr}`);
+    if (params.dateStr && params.dateStr.trim().length > 0) {
+      lines.push(`▫️ تاريخ الإشعار: ${params.dateStr.trim()}`);
     }
 
     if (params.amountMismatch && params.originalAmount !== undefined) {
-      lines.push(`⚠️ تحذير: المبلغ المحاول يختلف عن المبلغ الأصلي (${params.originalAmount.toLocaleString('en-US')} SDG)!`);
+      lines.push(`⚠️ تحذير: المبلغ في هذا الإشعار (${this.formatAmount(params.amount)}) يختلف عن المبلغ المسجل أصلاً (${this.formatAmount(params.originalAmount)})!`);
     }
 
     lines.push('');
@@ -133,43 +141,67 @@ export class WhatsAppResponseFormatter {
   }
 
   /**
-   * Standard Needs Review Template
+   * Template for when essential data (Tx number or amount) is missing or cannot be verified
    */
-  public static formatReviewNeeded(params: WhatsAppReviewParams): string {
+  public static formatIncompleteData(params: WhatsAppReviewParams): string {
     const lines: string[] = [
       '⚠️ *الإشعار يحتاج إلى مراجعة*',
       '',
-      'تم استقبال صورة الإشعار، لكن تعذر استخراج بعض البيانات بصورة موثوقة.',
+      'تم فحص الإشعار، لكن تعذر التأكد بصورة قطعية من البيانات الأساسية التالية:',
       '',
-      `▫️ المبلغ: ${params.amount ? this.formatAmount(params.amount) : 'غير واضح'}`,
-      `▫️ رقم العملية: ${params.transactionNumber ? `\`${params.transactionNumber}\`` : 'غير واضح'}`,
-      `▫️ التاريخ: ${params.dateStr || 'غير واضح'}`,
-      `▫️ الوقت: ${params.timeStr || 'غير واضح'}`
+      `▫️ رقم العملية: ${params.transactionNumber ? `\`${params.transactionNumber}\`` : 'غير مؤكد'}`,
+      `▫️ المبلغ: ${params.amount ? this.formatAmount(params.amount) : 'غير مؤكد'}`
     ];
 
+    if (params.dateStr && params.dateStr.trim().length > 0) {
+      lines.push(`▫️ تاريخ الإشعار: ${params.dateStr.trim()}`);
+    }
+    if (params.timeStr && params.timeStr.trim().length > 0) {
+      lines.push(`▫️ وقت الإشعار: ${params.timeStr.trim()}`);
+    }
     if (params.reason) {
       lines.push(`▫️ سبب المراجعة: ${params.reason}`);
     }
 
     lines.push('');
-    lines.push('يرجى إرسال صورة أوضح أو مراجعة البيانات يدوياً.');
+    lines.push('📌 لم يتم اعتماد العملية تلقائياً حفاظاً على دقة الحسابات.');
+    lines.push('▫️ يرجى إرسال صورة أوضح أو تأكيد بيانات الإشعار يدوياً من لوحة التحكم.');
 
     return lines.join('\n');
   }
 
   /**
-   * Standard System / Processing Failure Template
+   * Template for when OCR could not recognize receipt text (unclear image, bad angle, non-receipt)
    */
-  public static formatFailure(customMsg?: string): string {
+  public static formatExtractionFailed(): string {
     return [
-      '❌ *تعذر تسجيل الإشعار*',
+      '⚠️ *تعذر استخراج بيانات الإشعار*',
       '',
-      'حدثت مشكلة أثناء معالجة الإشعار البنكي.',
+      'تم استقبال صورة الإشعار، لكن تعذر قراءة نصوص وبيانات الإشعار البنكي بصورة كافية.',
       '',
-      'لم يتم تأكيد تسجيل العملية.',
+      '📌 لم يتم تسجيل أي عملية في الحسابات.',
+      '▫️ يرجى إرسال صورة أوضح بزاوية مستقيمة وإضاءة جيدة، أو إدخال الإشعار يدوياً من لوحة التحكم.'
+    ].join('\n');
+  }
+
+  /**
+   * Backward compatibility alias
+   */
+  public static formatReviewNeeded(params: WhatsAppReviewParams): string {
+    return this.formatIncompleteData(params);
+  }
+
+  /**
+   * Standard System / Processing Failure Template (No internal errors leaked)
+   */
+  public static formatFailure(): string {
+    return [
+      '❌ *تعذر إكمال معالجة الإشعار*',
       '',
-      customMsg ? `▫️ التفاصيل: ${customMsg}\n` : '',
-      'يرجى المحاولة مرة أخرى لاحقاً أو مراجعة المسؤول.'
-    ].filter(Boolean).join('\n');
+      'حدث خطأ غير متوقع أثناء معالجة الطلب، ولم يتم حفظ العملية.',
+      '',
+      '📌 لم تتأثر أي بيانات أو إجماليات مالية.',
+      '▫️ يرجى إعادة المحاولة لاحقاً أو التواصل مع الدعم الفني.'
+    ].join('\n');
   }
 }

@@ -83,8 +83,11 @@ export class WhatsAppBotService {
       try {
         const parsed = await this.ocrAdapter.parseReceipt(imagePath);
 
-        if (!parsed.normalizedTxNumber || parsed.amount === null || parsed.amount <= 0) {
-          botReplyText = WhatsAppResponseFormatter.formatReviewNeeded({
+        const hasMinimalText = Boolean(parsed.rawText && parsed.rawText.trim().length >= 15);
+        if (!hasMinimalText || parsed.status === 'FAILED') {
+          botReplyText = WhatsAppResponseFormatter.formatExtractionFailed();
+        } else if (!parsed.normalizedTxNumber || parsed.amount === null || parsed.amount <= 0) {
+          botReplyText = WhatsAppResponseFormatter.formatIncompleteData({
             transactionNumber: parsed.normalizedTxNumber,
             amount: parsed.amount,
             dateStr: parsed.formattedDate,
@@ -144,11 +147,12 @@ export class WhatsAppBotService {
             });
             linkedTxId = regResult.transaction?.id;
           } else {
-            botReplyText = WhatsAppResponseFormatter.formatFailure(regResult.message);
+            botReplyText = WhatsAppResponseFormatter.formatFailure();
           }
         }
       } catch (err: any) {
-        botReplyText = WhatsAppResponseFormatter.formatFailure(err.message);
+        console.error('Error during WhatsApp bot receipt processing:', err);
+        botReplyText = WhatsAppResponseFormatter.formatFailure();
       }
     } else {
       // 3. Process Text Commands
