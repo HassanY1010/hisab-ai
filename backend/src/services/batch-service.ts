@@ -204,7 +204,7 @@ export class BatchService {
       });
 
       return mergedBatch;
-    });
+    }, { maxWait: 20000, timeout: 35000 });
   }
 
   /**
@@ -258,7 +258,7 @@ export class BatchService {
       });
 
       return splitBatch;
-    });
+    }, { maxWait: 20000, timeout: 35000 });
   }
 
   /**

@@ -158,7 +158,7 @@ export class TransactionService {
         message: `تم تسجيل العملية رقم ${normalizedTxNumber} بنجاح بمبلغ ${numAmount.toLocaleString()} SDG.`,
         transaction: createdTx
       };
-    });
+    }, { maxWait: 20000, timeout: 35000 });
   }
 
   /**

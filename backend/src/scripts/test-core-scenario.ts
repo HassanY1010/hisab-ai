@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import { prisma } from '../services/db';
 import { TransactionService } from '../services/transaction-service';
 

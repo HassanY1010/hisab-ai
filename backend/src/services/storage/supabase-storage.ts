@@ -1,6 +1,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import path from 'path';
 import fs from 'fs';
+import ws from 'ws';
 
 export class SupabaseStorageService {
   private static client: SupabaseClient | null = null;
@@ -13,7 +14,15 @@ export class SupabaseStorageService {
 
     if (url && key) {
       try {
-        this.client = createClient(url, key);
+        this.client = createClient(url, key, {
+          auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+          },
+          realtime: {
+            transport: ws,
+          },
+        });
         return this.client;
       } catch (err) {
         console.warn('[Storage] Failed to initialize Supabase client:', err);
