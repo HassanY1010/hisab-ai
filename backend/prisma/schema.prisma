@@ -1,0 +1,128 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Transaction {
+  id                        String              @id @default(cuid())
+  transactionNumber         String              @unique
+  normalizedTxNumber        String              @unique
+  amount                    Decimal             @db.Decimal(15, 2)
+  direction                 String              // "INWARD" | "OUTWARD"
+  senderAccount             String?
+  receiverAccount           String?
+  beneficiaryName           String?
+  transactionDate           DateTime?
+  receivedAt                DateTime            @default(now())
+  imagePath                 String?
+  storageKey                String?             // Supabase storage object path
+  extractedText             String?
+  rawOcrJson                String?
+  ocrStatus                 String              @default("SUCCESS") // "SUCCESS" | "NEEDS_REVIEW" | "FAILED" | "MANUAL"
+  verificationStatus        String              @default("VERIFIED") // "VERIFIED" | "PENDING_REVIEW" | "REJECTED"
+  duplicateOfId             String?
+  duplicateOf               Transaction?        @relation("Duplicates", fields: [duplicateOfId], references: [id])
+  duplicates                Transaction[]       @relation("Duplicates")
+  duplicateAttempts         DuplicateAttempt[]
+  batchTransactions         BatchTransaction[]
+  chatMessages              ChatMessage[]
+  createdAt                 DateTime            @default(now())
+  updatedAt                 DateTime            @updatedAt
+
+  @@index([transactionNumber])
+  @@index([normalizedTxNumber])
+  @@index([direction])
+  @@index([receivedAt])
+}
+
+model Batch {
+  id                String              @id @default(cuid())
+  name              String
+  direction         String              // "INWARD" | "OUTWARD"
+  status            String              @default("OPEN") // "OPEN" | "CLOSED"
+  notes             String?
+  createdAt         DateTime            @default(now())
+  closedAt          DateTime?
+  batchTransactions BatchTransaction[]
+
+  @@index([direction])
+  @@index([status])
+}
+
+model BatchTransaction {
+  id            String       @id @default(cuid())
+  batchId       String
+  transactionId String
+  addedAt       DateTime     @default(now())
+  batch         Batch        @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  transaction   Transaction  @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@unique([batchId, transactionId])
+}
+
+model DuplicateAttempt {
+  id                    String       @id @default(cuid())
+  transactionNumber     String
+  originalTransactionId String?
+  originalTransaction   Transaction? @relation(fields: [originalTransactionId], references: [id], onDelete: SetNull)
+  attemptedImagePath    String?
+  storageKey            String?
+  attemptedAt           DateTime     @default(now())
+  extractedAmount       Decimal?     @db.Decimal(15, 2)
+  reviewStatus          String       @default("DETECTED") // "DETECTED" | "RESOLVED" | "IGNORED"
+  notes                 String?
+
+  @@index([transactionNumber])
+  @@index([attemptedAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  action     String
+  entityType String
+  entityId   String?
+  details    String?  // JSON string
+  createdAt  DateTime @default(now())
+
+  @@index([action])
+  @@index([createdAt])
+}
+
+model Conversation {
+  id          String        @id @default(cuid())
+  name        String
+  direction   String        // "INWARD" | "OUTWARD"
+  createdAt   DateTime      @default(now())
+  messages    ChatMessage[]
+}
+
+model ChatMessage {
+  id             String        @id @default(cuid())
+  conversationId String
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         String        // "USER" | "BOT" | "SYSTEM"
+  text           String
+  mediaUrl       String?
+  storageKey     String?
+  transactionId  String?
+  transaction    Transaction?  @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  metadata       String?       // JSON string
+  createdAt      DateTime      @default(now())
+
+  @@index([conversationId])
+}
+
+model ImageProcessingJob {
+  id            String   @id @default(cuid())
+  imagePath     String
+  storageKey    String?
+  status        String   @default("PENDING") // "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED"
+  extractedText String?
+  errorMessage  String?
+  createdAt     DateTime @default(now())
+}

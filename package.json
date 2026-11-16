@@ -1,0 +1,17 @@
+{
+  "name": "hisab-ai",
+  "version": "2.0.0",
+  "description": "HISAB AI - Intelligent WhatsApp Accounting Bot for Bank Transfer Receipts",
+  "scripts": {
+    "start": "cd backend && npx tsx src/index.ts",
+    "dev": "cd backend && npx tsx watch src/index.ts",
+    "build:frontend": "cd frontend && npm run build",
+    "build": "cd frontend && npm run build",
+    "postinstall": "cd backend && npx prisma generate",
+    "test": "cd backend && npx vitest run",
+    "test:ocr": "cd backend && npx tsx src/scripts/run-all-samples-test.ts",
+    "test:scenario": "cd backend && npx tsx src/scripts/test-core-scenario.ts"
+  },
+  "author": "Antigravity Senior Engineering Team",
+  "license": "ISC"
+}
