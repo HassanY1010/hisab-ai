@@ -35,8 +35,8 @@ export const DemoLoginModal: React.FC<DemoLoginModalProps> = ({ isOpen, onLoginS
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl border border-slate-200 relative overflow-hidden">
+    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-white rounded-2xl sm:rounded-3xl max-w-lg w-full p-4 sm:p-8 shadow-2xl border border-slate-200 relative overflow-y-auto max-h-[94dvh]">
         {/* Decorative Top Accent */}
         <div className="absolute top-0 right-0 left-0 h-2.5 bg-gradient-to-l from-emerald-500 via-[#0f766e] to-[#042f2e]" />
 

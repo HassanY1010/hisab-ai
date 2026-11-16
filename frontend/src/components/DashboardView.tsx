@@ -178,7 +178,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* Chart & Recent Operations Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Movement Chart */}
-        <div className="lg:col-span-2 bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs">
+        <div className="lg:col-span-2 bg-white rounded-2xl p-3.5 sm:p-6 border border-slate-200 shadow-xs min-w-0 overflow-hidden">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
             <div>
               <h2 className="text-base sm:text-lg font-black text-slate-900">حركة الوارد والصادر (آخر 7 أيام)</h2>
