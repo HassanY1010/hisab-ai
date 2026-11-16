@@ -25,6 +25,7 @@ export function App() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [showDemoBanner, setShowDemoBanner] = useState(true);
   const [currentUser, setCurrentUser] = useState<{ name: string; role: string } | null>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     // Check demo auth in session storage
@@ -101,15 +102,21 @@ export function App() {
       {/* Top Navbar */}
       <Navbar
         onOpenOcrModal={() => setIsOcrModalOpen(true)}
-        onOpenWhatsApp={() => setActiveTab('whatsapp')}
+        onOpenWhatsApp={() => {
+          setActiveTab('whatsapp');
+          setIsMobileMenuOpen(false);
+        }}
+        onToggleMobileMenu={() => setIsMobileMenuOpen(prev => !prev)}
       />
 
       {/* Main Body */}
-      <div className="flex-1 flex max-w-7xl w-full mx-auto">
+      <div className="flex-1 flex max-w-7xl w-full mx-auto relative">
         {/* Sidebar */}
         <Sidebar
           activeTab={activeTab}
           setActiveTab={setActiveTab}
+          isMobileOpen={isMobileMenuOpen}
+          onCloseMobile={() => setIsMobileMenuOpen(false)}
           stats={{
             duplicateCount: stats?.duplicateCount || 0,
             pendingReviewCount: stats?.pendingReviewCount || 0,
@@ -118,7 +125,7 @@ export function App() {
         />
 
         {/* Content Pane */}
-        <main className="flex-1 p-6 overflow-y-auto">
+        <main className="flex-1 p-3.5 sm:p-6 overflow-y-auto w-full max-w-full">
           {activeTab === 'dashboard' && (
             <DashboardView
               stats={stats}

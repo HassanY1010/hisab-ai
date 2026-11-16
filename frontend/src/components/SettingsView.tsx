@@ -61,20 +61,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onResetData }) => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
         <div>
           <div className="flex items-center space-x-2 space-x-reverse">
-            <Settings className="w-6 h-6 text-petroleum-800" />
-            <h1 className="text-xl font-bold text-slate-900">إعدادات النظام والاتصال السحابي</h1>
+            <Settings className="w-6 h-6 text-[#0f766e]" />
+            <h1 className="text-lg sm:text-xl font-black text-slate-900">إعدادات النظام والاتصال السحابي</h1>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-xs font-bold text-slate-600 mt-1.5 leading-relaxed">
             مراقبة حالة الاتصال بقاعدة بيانات PostgreSQL ومخزن Supabase Storage وإدارة البيئة التجريبية.
           </p>
         </div>
 
         <button
           onClick={fetchStatus}
-          className="text-xs font-semibold px-3 py-2 border border-slate-200 hover:bg-slate-50 rounded-lg text-slate-700"
+          className="w-full sm:w-auto text-xs font-black px-4 py-2 border border-slate-300 hover:bg-slate-50 rounded-xl text-slate-800 transition-colors cursor-pointer text-center"
         >
           فحص الاتصال ⟳
         </button>
@@ -83,61 +83,61 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onResetData }) => {
       {/* Infrastructure Status Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* PostgreSQL Database */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 space-y-3">
+        <div className="bg-white p-5 rounded-2xl border-2 border-indigo-100 space-y-3 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500">قاعدة البيانات (PostgreSQL)</span>
-            <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+            <span className="text-xs font-bold text-slate-700">قاعدة البيانات (PostgreSQL)</span>
+            <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-800 flex items-center justify-center shrink-0">
               <Database className="w-5 h-5" />
             </div>
           </div>
           <div>
             <div className="flex items-center space-x-2 space-x-reverse">
-              <span className={`w-2.5 h-2.5 rounded-full ${readiness?.database === 'connected' ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
-              <span className="text-sm font-bold text-slate-900">
-                {readiness?.database === 'connected' ? 'متصلة وجاهزة (Connected)' : 'قيد الفحص'}
+              <span className={`w-3 h-3 rounded-full shrink-0 ${readiness?.database === 'connected' ? 'bg-emerald-600 animate-pulse' : 'bg-amber-600'}`}></span>
+              <span className="text-sm font-black text-slate-950">
+                {readiness?.database === 'connected' ? 'متصلة وجاهزة (Supabase Active)' : 'قيد الفحص'}
               </span>
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">
+            <p className="text-xs font-medium text-slate-600 mt-1.5 leading-relaxed">
               مخطط Prisma ORM مع قيود منع التكرار الفريدة ونوع مالي دقيق Decimal(15,2).
             </p>
           </div>
         </div>
 
         {/* Supabase Storage */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 space-y-3">
+        <div className="bg-white p-5 rounded-2xl border-2 border-teal-100 space-y-3 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500">مخزن الملفات والصور</span>
-            <div className="w-9 h-9 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center">
+            <span className="text-xs font-bold text-slate-700">مخزن الملفات والصور</span>
+            <div className="w-10 h-10 rounded-xl bg-teal-100 text-teal-800 flex items-center justify-center shrink-0">
               <Cloud className="w-5 h-5" />
             </div>
           </div>
           <div>
             <div className="flex items-center space-x-2 space-x-reverse">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-              <span className="text-sm font-bold text-slate-900">
-                {readiness?.storage === 'supabase' ? 'Supabase Storage' : 'تخزين مدار / Hybrid'}
+              <span className="w-3 h-3 rounded-full bg-emerald-600 animate-pulse shrink-0"></span>
+              <span className="text-sm font-black text-slate-950">
+                {readiness?.storage === 'supabase' ? 'Supabase Storage (Bucket: receipts)' : 'تخزين مدار / Hybrid'}
               </span>
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">
-              دعم سحابي كامل لـ Supabase Buckets مع حماية الروابط وتخزين آمن.
+            <p className="text-xs font-medium text-slate-600 mt-1.5 leading-relaxed">
+              دعم سحابي كامل لحفظ إشعارات البنك وعرضها عبر روابط مباشرة وآمنة.
             </p>
           </div>
         </div>
 
         {/* OCR Engine */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 space-y-3">
+        <div className="bg-white p-5 rounded-2xl border-2 border-emerald-100 space-y-3 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500">محرك قراءة الإشعارات (OCR)</span>
-            <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+            <span className="text-xs font-bold text-slate-700">محرك قراءة الإشعارات (OCR)</span>
+            <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
               <Layers className="w-5 h-5" />
             </div>
           </div>
           <div>
             <div className="flex items-center space-x-2 space-x-reverse">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-              <span className="text-sm font-bold text-slate-900">Tesseract.js + Sharp</span>
+              <span className="w-3 h-3 rounded-full bg-emerald-600 shrink-0"></span>
+              <span className="text-sm font-black text-slate-950">Tesseract.js + Sharp Pipeline</span>
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">
+            <p className="text-xs font-medium text-slate-600 mt-1.5 leading-relaxed">
               دقة 100% مثبتة على عينات إشعارات بنك الخرطوم (تطبيق بنكك).
             </p>
           </div>
@@ -145,32 +145,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onResetData }) => {
       </div>
 
       {/* Reset Demo Data & Testing Environment */}
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 space-y-4">
+      <div className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 space-y-4 shadow-xs">
         <div className="flex items-center space-x-2 space-x-reverse">
-          <ShieldCheck className="w-5 h-5 text-petroleum-800" />
-          <h2 className="text-base font-bold text-slate-900">إدارة بيئة العرض التجريبية (Demo Environment)</h2>
+          <ShieldCheck className="w-5 h-5 text-[#0f766e]" />
+          <h2 className="text-base font-black text-slate-900">إدارة جلسة العرض التجريبي</h2>
         </div>
-        <p className="text-xs text-slate-600 leading-relaxed">
-          يتيح لك هذا الزر إعادة ضبط قاعدة البيانات إلى حالتها الأولية النظيفة، لمسح العمليات التي تمت تجربتها والبدء في جولة عرض جديدة ونظيفة أمام عميل آخر.
+        <p className="text-xs font-medium text-slate-600 leading-relaxed">
+          يمكنك إعادة ضبط وتصفير البيانات التجريبية للبدء في سيناريو جديد ونظيف أمام العميل بضغطة زر واحدة.
         </p>
 
         {message && (
-          <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center space-x-2 space-x-reverse">
-            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-            <span>{message}</span>
+          <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl text-xs font-bold text-teal-900">
+            {message}
           </div>
         )}
 
-        <div className="pt-2">
-          <button
-            onClick={handleReset}
-            disabled={isResetting}
-            className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold px-4 py-2.5 rounded-xl transition-colors flex items-center space-x-2 space-x-reverse disabled:opacity-50"
-          >
-            <RotateCcw className={`w-4 h-4 ${isResetting ? 'animate-spin' : ''}`} />
-            <span>{isResetting ? 'جارٍ إعادة التهيئة...' : 'إعادة تهيئة بيانات العرض التجريبي (Reset Demo)'}</span>
-          </button>
-        </div>
+        <button
+          onClick={handleReset}
+          disabled={isResetting}
+          className="w-full sm:w-auto px-5 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs sm:text-sm font-black rounded-xl transition-all shadow-sm flex items-center justify-center space-x-2 space-x-reverse cursor-pointer"
+        >
+          <RotateCcw className="w-4 h-4 text-rose-200" />
+          <span>{isResetting ? 'جاري إعادة الضبط...' : 'إعادة ضبط وتصفير بيانات النظام'}</span>
+        </button>
       </div>
     </div>
   );

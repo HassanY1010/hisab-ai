@@ -9,7 +9,9 @@ import {
   Sparkles,
   Paperclip,
   Smile,
-  AlertCircle
+  AlertCircle,
+  MessageSquare,
+  List
 } from 'lucide-react';
 import { api, getAssetUrl } from '../api';
 
@@ -20,8 +22,19 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
   const [inputText, setInputText] = useState('');
   const [samples, setSamples] = useState<any[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [mobileTab, setMobileTab] = useState<'conversations' | 'chat'>('chat');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Exact amounts for the 6 real samples to display on buttons
+  const sampleAmounts: Record<string, string> = {
+    '1794831071578.jpg': '1,000,000 SDG',
+    '1794831071609.jpg': '5,000,000 SDG',
+    '1794831071639.jpg': '1,800,000 SDG',
+    '1794831071669.jpg': '2,000,000 SDG',
+    '1794831071700.jpg': '1,943,000 SDG',
+    '1794831071730.jpg': '1,500,000 SDG',
+  };
 
   useEffect(() => {
     loadConversations();
@@ -62,6 +75,7 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
   const handleSelectConv = (conv: any) => {
     setActiveConv(conv);
     loadMessages(conv.id);
+    setMobileTab('chat');
   };
 
   const handleSendMessage = async (textToSend?: string) => {
@@ -72,9 +86,11 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
     setInputText('');
 
     try {
-      await api.sendWhatsAppMessage(activeConv.id, text.trim());
-      await loadMessages(activeConv.id);
-      onRefreshData();
+      const res = await api.sendWhatsAppMessage(activeConv.id, text.trim());
+      if (res && res.success !== false) {
+        await loadMessages(activeConv.id);
+        onRefreshData();
+      }
     } catch (err: any) {
       alert(`خطأ: ${err.message}`);
     } finally {
@@ -82,20 +98,22 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
     }
   };
 
-  const handleSendSampleImage = async (sampleFilename: string) => {
+  const handleSendSampleImage = async (filename: string) => {
     if (!activeConv || isProcessing) return;
     setIsProcessing(true);
 
     try {
-      const imgRes = await fetch(getAssetUrl(`/samples/${sampleFilename}`));
+      const imgRes = await fetch(getAssetUrl(`/samples/${filename}`));
       const blob = await imgRes.blob();
-      const file = new File([blob], sampleFilename, { type: 'image/jpeg' });
+      const file = new File([blob], filename, { type: 'image/jpeg' });
 
-      await api.sendWhatsAppMessage(activeConv.id, '', file);
-      await loadMessages(activeConv.id);
-      onRefreshData();
+      const res = await api.sendWhatsAppMessage(activeConv.id, '', file);
+      if (res && res.success !== false) {
+        await loadMessages(activeConv.id);
+        onRefreshData();
+      }
     } catch (err: any) {
-      alert(`خطأ في إرسال صورة العينة: ${err.message}`);
+      alert(`خطأ أثناء معالجة الإشعار: ${err.message}`);
     } finally {
       setIsProcessing(false);
     }
@@ -104,14 +122,16 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !activeConv || isProcessing) return;
-    setIsProcessing(true);
 
+    setIsProcessing(true);
     try {
-      await api.sendWhatsAppMessage(activeConv.id, '', file);
-      await loadMessages(activeConv.id);
-      onRefreshData();
+      const res = await api.sendWhatsAppMessage(activeConv.id, '', file);
+      if (res && res.success !== false) {
+        await loadMessages(activeConv.id);
+        onRefreshData();
+      }
     } catch (err: any) {
-      alert(`خطأ في رفع الصورة: ${err.message}`);
+      alert(`فشل رفع الإشعار: ${err.message}`);
     } finally {
       setIsProcessing(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -133,21 +153,47 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
   return (
     <div className="space-y-4">
       {/* Simulation Banner Notice */}
-      <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-xl flex items-center justify-between text-xs text-emerald-800">
-        <div className="flex items-center space-x-2 space-x-reverse font-semibold">
-          <Bot className="w-4 h-4 text-emerald-600" />
-          <span>بيئة محاكاة تفاعلية لواتساب (WhatsApp Simulator) - متصلة فعلياً بقاعدة PostgreSQL ومحرك الـ OCR</span>
+      <div className="bg-emerald-50 border border-emerald-300 p-3 sm:p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs font-bold text-emerald-950 shadow-xs">
+        <div className="flex items-center space-x-2 space-x-reverse">
+          <Bot className="w-5 h-5 text-emerald-700 shrink-0" />
+          <span>محاكي واتساب التفاعلي الذكي - متصل فعلياً بقاعدة PostgreSQL ومحرك الـ OCR السحابي</span>
         </div>
-        <span className="bg-emerald-200/60 px-2 py-0.5 rounded text-[11px] font-bold">محاكي تجريبي آمن</span>
+        <span className="bg-emerald-200 text-emerald-950 px-2.5 py-1 rounded-full text-[11px] font-black shrink-0">
+          محاكي تجريبي حي
+        </span>
+      </div>
+
+      {/* Mobile Switcher (Visible only on mobile devices) */}
+      <div className="flex md:hidden bg-slate-200 p-1 rounded-xl">
+        <button
+          onClick={() => setMobileTab('chat')}
+          className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center space-x-1.5 space-x-reverse transition-all ${
+            mobileTab === 'chat' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-700 hover:text-slate-900'
+          }`}
+        >
+          <MessageSquare className="w-4 h-4" />
+          <span>شاشة المحادثة ({activeConv?.name || 'البوت'})</span>
+        </button>
+        <button
+          onClick={() => setMobileTab('conversations')}
+          className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center space-x-1.5 space-x-reverse transition-all ${
+            mobileTab === 'conversations' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-700 hover:text-slate-900'
+          }`}
+        >
+          <List className="w-4 h-4" />
+          <span>القنوات والعينات</span>
+        </button>
       </div>
 
       {/* Main WhatsApp Window */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden grid grid-cols-1 md:grid-cols-3 h-[750px]">
-        {/* Left/Right Sidebar: Conversations List */}
-        <div className="border-l border-slate-200 bg-slate-50 flex flex-col h-full">
-          <div className="p-4 bg-slate-100/80 border-b border-slate-200 flex items-center justify-between">
-            <span className="font-bold text-slate-800 text-sm">محادثات البوت المحاسبي</span>
-            <span className="text-[11px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
+      <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden grid grid-cols-1 md:grid-cols-3 h-[680px] sm:h-[720px]">
+        {/* Left Sidebar: Conversations List & Sample Launchers */}
+        <div className={`border-l border-slate-200 bg-slate-50 flex flex-col h-full ${
+          mobileTab === 'conversations' ? 'flex' : 'hidden md:flex'
+        }`}>
+          <div className="p-4 bg-slate-100 border-b border-slate-200 flex items-center justify-between">
+            <span className="font-extrabold text-slate-900 text-sm">محادثات البوت المحاسبي</span>
+            <span className="text-[11px] bg-emerald-100 text-emerald-950 font-black px-2.5 py-0.5 rounded-full border border-emerald-300">
               متصل 🟢
             </span>
           </div>
@@ -161,20 +207,20 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
                   key={conv.id}
                   onClick={() => handleSelectConv(conv)}
                   className={`p-3.5 flex items-center space-x-3 space-x-reverse cursor-pointer transition-colors ${
-                    isSelected ? 'bg-white border-r-4 border-r-emerald-600 shadow-xs' : 'hover:bg-slate-100/60'
+                    isSelected ? 'bg-white border-r-4 border-r-emerald-700 shadow-xs' : 'hover:bg-slate-100'
                   }`}
                 >
-                  <div className={`w-11 h-11 rounded-full flex items-center justify-center font-bold text-white shadow-sm ${
-                    isDefaultInward ? 'bg-gradient-to-br from-emerald-600 to-teal-700' : 'bg-gradient-to-br from-rose-500 to-red-700'
+                  <div className={`w-11 h-11 rounded-full flex items-center justify-center font-black text-white shadow-sm shrink-0 ${
+                    isDefaultInward ? 'bg-gradient-to-br from-emerald-700 to-teal-800' : 'bg-gradient-to-br from-rose-600 to-red-800'
                   }`}>
                     {isDefaultInward ? 'و' : 'ص'}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-900 truncate">{conv.name}</span>
-                      <span className="text-[10px] text-slate-400">الآن</span>
+                      <span className="text-xs font-black text-slate-900 truncate">{conv.name}</span>
+                      <span className="text-[10px] font-bold text-slate-500">الآن</span>
                     </div>
-                    <div className="text-[11px] text-slate-500 truncate mt-0.5">
+                    <div className="text-[11px] font-semibold text-slate-600 truncate mt-0.5">
                       قناة تحويلات {isDefaultInward ? 'الوارد المستلم' : 'الصادر المدفوع'}
                     </div>
                   </div>
@@ -185,95 +231,106 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
 
           {/* Sample Images Quick Launcher */}
           <div className="p-3 bg-white border-t border-slate-200">
-            <span className="text-[11px] font-bold text-slate-700 block mb-2 flex items-center space-x-1 space-x-reverse">
-              <Sparkles className="w-3.5 h-3.5 text-petroleum-700" />
-              <span>إرسال إشعار بنكي من العينات الست:</span>
+            <span className="text-[11px] font-black text-slate-900 block mb-2 flex items-center space-x-1 space-x-reverse">
+              <Sparkles className="w-3.5 h-3.5 text-teal-800 shrink-0" />
+              <span>إرسال إشعار بنكي سريع (العينات الست):</span>
             </span>
             <div className="grid grid-cols-2 gap-1.5 max-h-36 overflow-y-auto">
-              {samples.map((s, idx) => (
-                <button
-                  key={s.filename}
-                  disabled={isProcessing}
-                  onClick={() => handleSendSampleImage(s.filename)}
-                  className="text-right text-[11px] p-1.5 rounded-lg border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50 transition-all font-mono truncate"
-                  title={`إرسال صورة ${s.filename}`}
-                >
-                  📄 صورة {idx + 1}
-                </button>
-              ))}
+              {samples.map((s, idx) => {
+                const label = sampleAmounts[s.filename] || `صورة ${idx + 1}`;
+                return (
+                  <button
+                    key={s.filename}
+                    disabled={isProcessing}
+                    onClick={() => {
+                      handleSendSampleImage(s.filename);
+                      setMobileTab('chat');
+                    }}
+                    className="text-right text-[11px] p-2 rounded-xl border border-slate-300 hover:border-emerald-600 hover:bg-emerald-50 transition-all font-bold text-slate-900 truncate shadow-2xs cursor-pointer"
+                    title={`إرسال ${label}`}
+                  >
+                    📄 {label}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
 
         {/* Chat Window */}
-        <div className="md:col-span-2 flex flex-col h-full bg-[#efeae2]/40 relative">
+        <div className={`md:col-span-2 flex flex-col h-full bg-[#f0f2f5] relative ${
+          mobileTab === 'chat' ? 'flex' : 'hidden md:flex'
+        }`}>
           {/* Chat Header */}
           <div className="p-3.5 bg-slate-100 border-b border-slate-200 flex items-center justify-between">
             <div className="flex items-center space-x-3 space-x-reverse">
-              <div className="w-10 h-10 rounded-full bg-petroleum-800 text-white flex items-center justify-center font-bold text-sm">
-                <Bot className="w-5 h-5 text-emerald-400" />
+              <div className="w-10 h-10 rounded-full bg-emerald-800 text-white flex items-center justify-center font-bold text-sm shadow-sm shrink-0">
+                <Bot className="w-5 h-5 text-emerald-200" />
               </div>
               <div>
-                <div className="text-xs font-bold text-slate-900">{activeConv?.name || 'محادثة البوت'}</div>
-                <div className="text-[11px] text-emerald-600 font-medium">البوت المحاسبي جاهز لاستقبال الإشعارات والأوامر</div>
+                <div className="text-xs sm:text-sm font-black text-slate-950">{activeConv?.name || 'محادثة البوت'}</div>
+                <div className="text-[11px] text-emerald-800 font-bold">البوت المحاسبي جاهز لاستقبال الإشعارات والأوامر</div>
               </div>
             </div>
 
-            <div className="text-xs text-slate-500 font-medium bg-white px-2.5 py-1 rounded-lg border border-slate-200">
-              قناة: <strong className={activeConv?.direction === 'INWARD' ? 'text-emerald-700' : 'text-rose-700'}>
-                {activeConv?.direction === 'INWARD' ? 'وارد' : 'صادر'}
-              </strong>
-            </div>
+            {/* Switch to Channel button on mobile */}
+            <button
+              onClick={() => setMobileTab('conversations')}
+              className="md:hidden text-xs font-bold text-slate-700 bg-white border border-slate-300 px-2.5 py-1 rounded-lg"
+            >
+              تغيير القناة
+            </button>
           </div>
 
-          {/* Quick Command Chips */}
-          <div className="p-2 bg-white/70 border-b border-slate-200 flex items-center space-x-1.5 space-x-reverse overflow-x-auto text-[11px]">
-            <span className="text-slate-400 shrink-0 font-medium">أوامر سريعة:</span>
+          {/* Quick Command Pills */}
+          <div className="bg-white/90 border-b border-slate-200 px-3 py-2 overflow-x-auto flex items-center space-x-1.5 space-x-reverse shrink-0">
+            <span className="text-[11px] font-black text-slate-600 shrink-0 ml-1">أوامر سريعة:</span>
             {quickCommands.map((cmd) => (
               <button
                 key={cmd}
                 disabled={isProcessing}
                 onClick={() => handleSendMessage(cmd)}
-                className="bg-slate-100 hover:bg-emerald-100 hover:text-emerald-800 text-slate-700 font-medium px-2.5 py-1 rounded-full shrink-0 border border-slate-200 transition-colors"
+                className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-slate-100 hover:bg-emerald-100 hover:text-emerald-950 text-slate-800 border border-slate-300 whitespace-nowrap transition-colors cursor-pointer shrink-0"
               >
                 {cmd}
               </button>
             ))}
           </div>
 
-          {/* Messages Stream */}
+          {/* Messages Scroll Area */}
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {messages.map((msg) => {
-              const isUser = msg.sender === 'USER';
+            {messages.map((m) => {
+              const isUser = m.sender === 'USER';
               return (
-                <div
-                  key={msg.id}
-                  className={`flex ${isUser ? 'justify-start' : 'justify-end'}`}
-                >
+                <div key={m.id} className={`flex ${isUser ? 'justify-start' : 'justify-end'}`}>
                   <div
-                    className={`max-w-[85%] rounded-2xl p-3.5 text-xs shadow-xs space-y-1.5 ${
+                    className={`max-w-[85%] sm:max-w-[75%] rounded-2xl p-3 sm:p-4 text-xs sm:text-sm shadow-xs ${
                       isUser
-                        ? 'bg-white text-slate-900 border border-slate-200 rounded-br-xs'
-                        : 'bg-[#d9fdd3] text-slate-900 rounded-bl-xs'
+                        ? 'bg-white text-slate-900 rounded-tr-none border border-slate-200'
+                        : 'bg-[#d9fdd3] text-slate-950 rounded-tl-none border border-emerald-300'
                     }`}
                   >
-                    {msg.mediaUrl && (
-                      <div className="rounded-xl overflow-hidden border border-slate-200/80 mb-2">
+                    {/* Media Image If Exists */}
+                    {m.mediaPath && (
+                      <div className="mb-2 rounded-xl overflow-hidden border border-slate-300 bg-slate-100 max-h-56">
                         <img
-                          src={getAssetUrl(msg.mediaUrl)}
-                          alt="Receipt upload"
-                          className="max-h-48 object-contain w-full bg-slate-900/5"
+                          src={getAssetUrl(m.mediaPath)}
+                          alt="إشعار بنكي"
+                          className="w-full h-auto object-contain cursor-pointer"
+                          onClick={() => window.open(getAssetUrl(m.mediaPath), '_blank')}
                         />
                       </div>
                     )}
 
-                    <div className="whitespace-pre-wrap leading-relaxed font-sans">
-                      {msg.text}
+                    {/* Message Body */}
+                    <div className="whitespace-pre-line leading-relaxed font-semibold">
+                      {m.text}
                     </div>
 
-                    <div className="text-[10px] text-slate-400 text-left flex items-center justify-end space-x-1 space-x-reverse">
-                      <span>{new Date(msg.createdAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</span>
-                      {isUser && <CheckCheck className="w-3.5 h-3.5 text-emerald-600 inline" />}
+                    {/* Metadata & Timestamp */}
+                    <div className="flex items-center justify-end space-x-1 space-x-reverse mt-1 text-[10px] font-bold text-slate-500">
+                      <span>{new Date(m.createdAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</span>
+                      {!isUser && <CheckCheck className="w-3.5 h-3.5 text-emerald-700" />}
                     </div>
                   </div>
                 </div>
@@ -282,16 +339,17 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
 
             {isProcessing && (
               <div className="flex justify-end">
-                <div className="bg-[#d9fdd3] text-slate-700 text-xs px-4 py-2.5 rounded-2xl rounded-bl-xs shadow-xs flex items-center space-x-2 space-x-reverse">
-                  <span className="w-2 h-2 rounded-full bg-emerald-600 animate-ping"></span>
-                  <span>البوت يقوم بقراءة الإشعار وتحليل الحقول بالـ OCR...</span>
+                <div className="bg-[#d9fdd3] text-slate-900 border border-emerald-300 text-xs px-4 py-2.5 rounded-2xl rounded-bl-xs shadow-xs flex items-center space-x-2 space-x-reverse">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 animate-ping"></span>
+                  <span className="font-bold">جاري تحليل الإشعار بالذكاء الاصطناعي وOCR واستخراج الأرقام...</span>
                 </div>
               </div>
             )}
+
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Chat Input Bar */}
+          {/* Input Bar */}
           <div className="p-3 bg-white border-t border-slate-200">
             <form
               onSubmit={(e) => {
@@ -303,16 +361,17 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
               <input
                 type="file"
                 ref={fileInputRef}
+                accept="image/*"
                 onChange={handleFileUpload}
-                accept="image/jpeg,image/png,image/webp"
                 className="hidden"
               />
 
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="p-2 text-slate-500 hover:text-emerald-700 hover:bg-slate-100 rounded-xl transition-colors"
-                title="إرفاق صورة إشعار بنكي"
+                disabled={isProcessing}
+                className="p-2.5 rounded-xl text-slate-700 hover:text-emerald-800 hover:bg-slate-100 transition-colors shrink-0"
+                title="إرفاق صورة إشعار بنكي من جهازك"
               >
                 <Paperclip className="w-5 h-5" />
               </button>
@@ -321,16 +380,18 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                placeholder="اكتب أمراً (مثل: الإجمالي، تقرير اليوم) أو أرفق إشعاراً..."
-                className="flex-1 border border-slate-200 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-600/20 focus:border-emerald-600"
+                placeholder="اكتب استفساراً محاسبياً (مثل: الإجمالي، تقرير اليوم)..."
+                disabled={isProcessing}
+                className="flex-1 px-4 py-2.5 bg-slate-100 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:bg-white"
               />
 
               <button
                 type="submit"
-                disabled={isProcessing || !inputText.trim()}
-                className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white p-2.5 rounded-xl transition-all shadow-sm"
+                disabled={!inputText.trim() || isProcessing}
+                className="p-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-40 text-white transition-all shadow-sm shrink-0 cursor-pointer"
+                title="إرسال"
               >
-                <Send className="w-4 h-4 rotate-180" />
+                <Send className="w-5 h-5" />
               </button>
             </form>
           </div>
