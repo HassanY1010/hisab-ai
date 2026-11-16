@@ -126,7 +126,7 @@ export function App() {
         />
 
         {/* Content Pane */}
-        <main className="flex-1 p-2.5 sm:p-5 md:p-6 pb-24 md:pb-6 overflow-y-auto min-h-0 w-full max-w-full overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
+        <main className="flex-1 p-2.5 sm:p-5 md:p-6 pb-28 md:pb-8 w-full max-w-full">
           {activeTab === 'dashboard' && (
             <DashboardView
               stats={stats}

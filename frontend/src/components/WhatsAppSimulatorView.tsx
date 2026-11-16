@@ -231,7 +231,7 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
       </div>
 
       {/* Main WhatsApp Window */}
-      <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden grid grid-cols-1 md:grid-cols-3 h-[calc(100dvh-15rem)] min-h-[480px] max-h-[820px] md:h-[720px]">
+      <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden grid grid-cols-1 md:grid-cols-3 h-[calc(100dvh-12rem)] min-h-[480px] max-h-[820px]">
         {/* Left Sidebar: Conversations List & Sample Launchers */}
         <div className={`border-l border-slate-200 bg-slate-50 flex flex-col h-full min-h-0 ${
           mobileTab === 'conversations' ? 'flex' : 'hidden md:flex'
@@ -365,8 +365,8 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
           {/* Messages Scroll Area */}
           <div
             ref={messagesContainerRef}
-            className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 space-y-3 overscroll-contain"
-            style={{ WebkitOverflowScrolling: 'touch' }}
+            className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 space-y-3"
+            style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
           >
             {messages.map((m) => {
               const isUser = m.sender === 'USER';
