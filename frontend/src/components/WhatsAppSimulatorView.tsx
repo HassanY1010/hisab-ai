@@ -11,7 +11,9 @@ import {
   Smile,
   AlertCircle,
   MessageSquare,
-  List
+  List,
+  ChevronUp,
+  ChevronDown
 } from 'lucide-react';
 import { api, getAssetUrl } from '../api';
 
@@ -25,6 +27,25 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
   const [mobileTab, setMobileTab] = useState<'conversations' | 'chat'>('chat');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = () => {
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTo({
+        top: messagesContainerRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  const scrollToTop = () => {
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+      });
+    }
+  };
 
   // Exact amounts for the 6 real samples to display on buttons
   const sampleAmounts: Record<string, string> = {
@@ -186,9 +207,9 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
       </div>
 
       {/* Main WhatsApp Window */}
-      <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden grid grid-cols-1 md:grid-cols-3 h-[680px] sm:h-[720px]">
+      <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden grid grid-cols-1 md:grid-cols-3 h-[75vh] min-h-[520px] max-h-[820px] md:h-[720px]">
         {/* Left Sidebar: Conversations List & Sample Launchers */}
-        <div className={`border-l border-slate-200 bg-slate-50 flex flex-col h-full ${
+        <div className={`border-l border-slate-200 bg-slate-50 flex flex-col h-full min-h-0 ${
           mobileTab === 'conversations' ? 'flex' : 'hidden md:flex'
         }`}>
           <div className="p-4 bg-slate-100 border-b border-slate-200 flex items-center justify-between">
@@ -258,7 +279,7 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
         </div>
 
         {/* Chat Window */}
-        <div className={`md:col-span-2 flex flex-col h-full bg-[#f0f2f5] relative ${
+        <div className={`md:col-span-2 flex flex-col h-full min-h-0 bg-[#f0f2f5] relative ${
           mobileTab === 'chat' ? 'flex' : 'hidden md:flex'
         }`}>
           {/* Chat Header */}
@@ -297,8 +318,32 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
             ))}
           </div>
 
+          {/* Quick Floating Scroll Controls (Jump to top / bottom) */}
+          <div className="absolute left-3 bottom-20 z-20 flex flex-col space-y-1.5">
+            <button
+              type="button"
+              onClick={scrollToTop}
+              className="w-8 h-8 rounded-full bg-white/95 hover:bg-white text-slate-800 border border-slate-300 flex items-center justify-center shadow-md active:scale-90 transition-all cursor-pointer"
+              title="الصعود لأول الرسائل"
+            >
+              <ChevronUp className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={scrollToBottom}
+              className="w-8 h-8 rounded-full bg-emerald-800 hover:bg-emerald-900 text-white flex items-center justify-center shadow-md active:scale-90 transition-all cursor-pointer"
+              title="النزول لآخر رسالة"
+            >
+              <ChevronDown className="w-4 h-4" />
+            </button>
+          </div>
+
           {/* Messages Scroll Area */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div
+            ref={messagesContainerRef}
+            className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 space-y-3 overscroll-contain"
+            style={{ WebkitOverflowScrolling: 'touch' }}
+          >
             {messages.map((m) => {
               const isUser = m.sender === 'USER';
               return (

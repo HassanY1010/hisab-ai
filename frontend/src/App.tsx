@@ -110,7 +110,7 @@ export function App() {
       />
 
       {/* Main Body */}
-      <div className="flex-1 flex max-w-7xl w-full mx-auto relative">
+      <div className="flex-1 flex max-w-7xl w-full mx-auto relative min-h-0">
         {/* Sidebar */}
         <Sidebar
           activeTab={activeTab}
@@ -125,7 +125,7 @@ export function App() {
         />
 
         {/* Content Pane */}
-        <main className="flex-1 p-3.5 sm:p-6 overflow-y-auto w-full max-w-full">
+        <main className="flex-1 p-3.5 sm:p-6 overflow-y-auto min-h-0 w-full max-w-full overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
           {activeTab === 'dashboard' && (
             <DashboardView
               stats={stats}
