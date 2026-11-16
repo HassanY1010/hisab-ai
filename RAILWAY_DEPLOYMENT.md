@@ -5,6 +5,14 @@
 
 ---
 
+## 🌐 الرابط المباشر للمشروع المنشور (Live Production URL)
+👉 **[https://hisab-ai-production.up.railway.app](https://hisab-ai-production.up.railway.app)**
+
+- **فحص الجاهزية الحي:** `https://hisab-ai-production.up.railway.app/api/health`
+- **فحص حالة قاعدة البيانات والتخزين:** `https://hisab-ai-production.up.railway.app/api/ready`
+
+---
+
 ## 1. نموذج المعمارية المعتمد للنشر (Production Deployment Architecture)
 
 يدعم النظام خيارين للنشر على Railway:

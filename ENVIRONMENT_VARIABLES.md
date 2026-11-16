@@ -16,8 +16,8 @@
 | `SUPABASE_SERVICE_ROLE_KEY` | `string` | اختياري | `eyJhbGciOi...` | المفتاح الإداري السري للوصول إلى التخزين السحابي لرفع إشعارات البنك إلى Bucket `receipts`. |
 | `SUPABASE_STORAGE_BUCKET` | `string` | اختياري | `receipts` | اسم الحاوية السحابية المخصصة لحفظ صور الإشعارات. |
 | `SESSION_SECRET` | `string` | اختياري | `hisab_super_secret_session_key_2026` | مفتاح تشفير جلسات العرض التوضيحي والمصادقة. |
-| `CORS_ORIGIN` | `string` | اختياري | `*` | النطاقات المصرح لها بالاتصال بالـ API عبر CORS. |
-| `VITE_API_URL` | `string` | اختياري | `""` (مسار نسبي) | رابط الـ Backend لواجهة الفرونت إند (يترك فارغاً عند دمج الفرونت إند مع الباك إند في نفس الحاوية). |
+| `CORS_ORIGIN` | `string` | اختياري | `*` / `https://hisab-ai-production.up.railway.app` | النطاقات المصرح لها بالاتصال بالـ API عبر CORS. |
+| `VITE_API_URL` | `string` | اختياري | `https://hisab-ai-production.up.railway.app` | رابط الـ Backend لواجهة الفرونت إند (يترك فارغاً أو يضبط على رابط الإنتاج). |
 
 ---
 

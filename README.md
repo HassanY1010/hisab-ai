@@ -38,11 +38,16 @@
 
 ---
 
+### 🌐 الرابط المباشر للإنتاج (Live Production URL):
+👉 **[https://hisab-ai-production.up.railway.app](https://hisab-ai-production.up.railway.app)**
+
+---
+
 ## 🚀 التشغيل المحلي (Quick Start)
 
 ### المتطلبات الأساسية:
 - Node.js (v20 أو v22)
-- قاعدة بيانات PostgreSQL تعمل على المنفذ `5433` (أو تعديل الرابط في `backend/.env`)
+- قاعدة بيانات PostgreSQL (Supabase السحابية أو محلية)
 
 ### خطوات التشغيل:
 ```bash
@@ -60,7 +65,7 @@ npx prisma db push
 npm start
 ```
 
-افتح المتصفح على: `http://localhost:3000`
+افتح المتصفح على: `https://hisab-ai-production.up.railway.app` أو `http://localhost:4000`
 
 ---
 

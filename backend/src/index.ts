@@ -7,7 +7,8 @@ async function start() {
   try {
     await WhatsAppBotService.initDefaultConversations();
     app.listen(PORT, () => {
-      console.log(`[HISAB AI Backend] Running on http://localhost:${PORT}`);
+      console.log(`[HISAB AI Backend] Running on port ${PORT}`);
+      console.log(`[HISAB AI Production URL] https://hisab-ai-production.up.railway.app`);
     });
   } catch (err) {
     console.error('Failed to start server:', err);
