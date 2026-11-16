@@ -1,4 +1,5 @@
 import { ParsedBankakReceipt } from './ocr-types';
+import { ReceiptDateParser } from './receipt-date-parser';
 
 export class BankakReceiptParser {
   /**
@@ -120,35 +121,40 @@ export class BankakReceiptParser {
       }
     }
 
-    // 3. Date & Time Extraction
-    const dateMatch = rawText.match(/(\d{1,2}-[A-Za-z]{3}-\d{4}(?:\s+\d{2}:\d{2}:\d{2})?)/i) ||
-                      rawText.match(/(\d{2}:\d{2}:\d{2}\s+\d{1,2}-[A-Za-z]{3}-\d{4})/i);
-    if (dateMatch) {
-      const dateStr = dateMatch[1];
-      const parsedDate = new Date(dateStr);
-      if (!isNaN(parsedDate.getTime())) {
-        transactionDate = parsedDate;
+    // 3. Date & Time Extraction via robust ReceiptDateParser
+    const parsedDateTime = ReceiptDateParser.parse(rawText);
+    transactionDate = parsedDateTime.date;
+
+    // 4. Accounts extraction
+    for (const line of lines) {
+      if (/من\s*حساب/i.test(line)) {
+        const match = line.match(/((?:\d{1,4}\s*){3,4})/);
+        if (match) senderAccount = match[1].trim();
+      } else if (/الى\s*حساب|إلى\s*حساب/i.test(line)) {
+        const match = line.match(/((?:\d{1,4}\s*){3,4})/);
+        if (match) receiverAccount = match[1].trim();
       }
     }
 
-    // 4. Accounts extraction
-    const accountMatches = [...rawText.matchAll(/(\d{4}\s+\d{4}\s+\d{4}\s+\d{4})/g)];
-    if (accountMatches.length >= 1) {
-      senderAccount = accountMatches[0][1];
-    }
-    if (accountMatches.length >= 2) {
-      receiverAccount = accountMatches[1][1];
+    if (!senderAccount || !receiverAccount) {
+      const accountMatches = [...rawText.matchAll(/(\d{1,4}\s+\d{4}\s+\d{4}\s+\d{4})/g)];
+      if (!senderAccount && accountMatches.length >= 1) {
+        senderAccount = accountMatches[0][1].trim();
+      }
+      if (!receiverAccount && accountMatches.length >= 2) {
+        receiverAccount = accountMatches[1][1].trim();
+      }
     }
 
     // 5. Beneficiary Name extraction
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (/إسم\s*المرسل\s*اليه|المرسل\s*اليه/i.test(line)) {
-        const cleaned = line.replace(/إسم\s*المرسل\s*اليه|المرسل\s*اليه/i, '').trim();
-        if (cleaned.length > 2 && !/^\d+$/.test(cleaned)) {
+      if (/إسم\s*المرسل\s*اليه|المرسل\s*اليه|المستفيد/i.test(line)) {
+        const cleaned = line.replace(/إسم\s*المرسل\s*اليه|المرسل\s*اليه|المستفيد/i, '').replace(/[:：]/g, '').trim();
+        if (cleaned.length > 2 && !/^\d+$/.test(cleaned) && cleaned.toLowerCase() !== 'n/a') {
           beneficiaryName = cleaned;
-        } else if (i + 1 < lines.length && !/^\d+$/.test(lines[i + 1])) {
-          beneficiaryName = lines[i + 1];
+        } else if (i + 1 < lines.length && !/^\d+$/.test(lines[i + 1]) && lines[i + 1].toLowerCase() !== 'n/a') {
+          beneficiaryName = lines[i + 1].trim();
         }
       }
     }
@@ -156,14 +162,16 @@ export class BankakReceiptParser {
     const normalizedTxNumber = transactionNumber ? this.normalizeTxNumber(transactionNumber) : null;
 
     let confidence = 0.0;
-    if (normalizedTxNumber && amount !== null) {
-      confidence = 0.98;
+    if (normalizedTxNumber && amount !== null && parsedDateTime.hasDate) {
+      confidence = 0.99;
+    } else if (normalizedTxNumber && amount !== null) {
+      confidence = 0.90;
     } else if (normalizedTxNumber || amount !== null) {
       confidence = 0.50;
     }
 
     let status: 'SUCCESS' | 'NEEDS_REVIEW' | 'FAILED' = 'FAILED';
-    if (normalizedTxNumber && amount !== null && amount > 0) {
+    if (normalizedTxNumber && amount !== null && amount > 0 && parsedDateTime.hasDate) {
       status = 'SUCCESS';
     } else if (normalizedTxNumber || (amount !== null && amount > 0)) {
       status = 'NEEDS_REVIEW';
@@ -176,6 +184,14 @@ export class BankakReceiptParser {
       amountRaw,
       currency: 'SDG',
       transactionDate,
+      rawDateStr: parsedDateTime.rawDateStr,
+      rawTimeStr: parsedDateTime.rawTimeStr,
+      rawDateTimeStr: parsedDateTime.rawDateTimeStr,
+      formattedDate: parsedDateTime.formattedDate,
+      formattedTime: parsedDateTime.formattedTime,
+      formattedDateTime: parsedDateTime.formattedDateTime,
+      hasTime: parsedDateTime.hasTime,
+      hasDate: parsedDateTime.hasDate,
       senderAccount,
       receiverAccount,
       beneficiaryName,

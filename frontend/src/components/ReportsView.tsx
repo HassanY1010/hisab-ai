@@ -9,7 +9,7 @@ import {
   Scale,
   ShieldAlert
 } from 'lucide-react';
-import { api } from '../api';
+import { api, formatDateTime } from '../api';
 
 interface ReportsViewProps {
   batches: any[];
@@ -289,8 +289,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ batches }) => {
                         {tx.direction === 'INWARD' ? 'وارد' : 'صادر'}
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-xs font-bold text-slate-700">
-                      {new Date(tx.receivedAt).toLocaleDateString('ar-EG')}
+                    <td className="py-3 px-4 text-xs font-bold text-slate-800 font-mono">
+                      {tx.transactionDate ? formatDateTime(tx.transactionDate) : new Date(tx.receivedAt).toLocaleDateString('ar-EG')}
                     </td>
                     <td className="py-3 px-4 text-xs font-bold text-slate-900">{tx.beneficiaryName || '-'}</td>
                     <td className="py-3 px-4 text-xs font-bold text-slate-600">

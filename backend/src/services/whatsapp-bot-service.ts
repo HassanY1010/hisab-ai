@@ -3,6 +3,8 @@ import { TransactionService } from './transaction-service';
 import { BatchService } from './batch-service';
 import { TesseractOcrAdapter } from './ocr/tesseract-adapter';
 import { SupabaseStorageService } from './storage/supabase-storage';
+import { WhatsAppResponseFormatter } from './whatsapp-response-formatter';
+import { ReceiptDateParser } from './ocr/receipt-date-parser';
 import fs from 'fs';
 
 export class WhatsAppBotService {
@@ -82,10 +84,13 @@ export class WhatsAppBotService {
         const parsed = await this.ocrAdapter.parseReceipt(imagePath);
 
         if (!parsed.normalizedTxNumber || parsed.amount === null || parsed.amount <= 0) {
-          botReplyText = `⚠️ تعذر استخراج بيانات الإشعار بدقة عالية.\n\n` +
-            `▫️ رقم العملية المقروء: ${parsed.normalizedTxNumber || 'غير واضح'}\n` +
-            `▫️ المبلغ المقروء: ${parsed.amount ? parsed.amount.toLocaleString() + ' SDG' : 'غير واضح'}\n\n` +
-            `يرجى إعادة إرسال صورة أوضح، أو مراجعة الإشعار في قسم «يحتاج مراجعة» للمطابقة اليدوية.`;
+          botReplyText = WhatsAppResponseFormatter.formatReviewNeeded({
+            transactionNumber: parsed.normalizedTxNumber,
+            amount: parsed.amount,
+            dateStr: parsed.formattedDate,
+            timeStr: parsed.formattedTime,
+            reason: !parsed.normalizedTxNumber ? 'تعذر استخراج رقم العملية بدقة' : (parsed.amount === null ? 'تعذر استخراج المبلغ المالي' : undefined)
+          });
         } else {
           const regResult = await TransactionService.registerTransaction({
             transactionNumber: parsed.normalizedTxNumber,
@@ -107,35 +112,43 @@ export class WhatsAppBotService {
             const orig = regResult.duplicateDetails?.originalTransaction;
             const isMismatch = regResult.duplicateDetails?.amountMismatch;
             const origAmount = orig ? Number(orig.amount) : 0;
-            botReplyText = `🚨 *تنبيه تكرار عملية بنكية!*\n\n` +
-              `❌ رقم العملية: *${parsed.normalizedTxNumber}* سبق تسجيلها في النظام.\n` +
-              `▫️ تاريخ التسجيل الأصلي: ${orig ? new Date(orig.createdAt).toLocaleString('ar-EG') : '-'}\n` +
-              `▫️ المبلغ الأصلي: *${origAmount.toLocaleString()} SDG*\n` +
-              `▫️ المبلغ المحاول: *${parsed.amount.toLocaleString()} SDG*\n` +
-              (isMismatch ? `⚠️ *تحذير:* المبلغ المحاول يختلف عن المبلغ المسجل مسبقاً!\n` : '') +
-              `\n⛔ *القرار المحاسبي:* تم رفض العملية وحجبها من الإجماليات.\n` +
-              `📋 تم تقييد المحاولة في سجل الرقابة وكشف التكرار.`;
+            const origDate = orig?.transactionDate
+              ? ReceiptDateParser.formatDateStr(new Date(orig.transactionDate).getUTCFullYear(), new Date(orig.transactionDate).getUTCMonth() + 1, new Date(orig.transactionDate).getUTCDate())
+              : parsed.formattedDate;
+
+            botReplyText = WhatsAppResponseFormatter.formatDuplicate({
+              transactionNumber: parsed.normalizedTxNumber,
+              amount: parsed.amount,
+              dateStr: origDate || parsed.formattedDate,
+              originalAmount: origAmount,
+              amountMismatch: isMismatch
+            });
             linkedTxId = orig?.id;
           } else if (regResult.status === 'SUCCESS') {
             const stats = await TransactionService.getFinancialStats();
-            const dirLabel = conversation.direction === 'INWARD' ? 'وارد (مستلم)' : 'صادر (مدفوع)';
-            botReplyText = `✅ *تم اعتماد وتسجيل الإشعار البنكي بنجاح!*\n\n` +
-              `▫️ رقم العملية: *${parsed.normalizedTxNumber}*\n` +
-              `▫️ المبلغ: *${parsed.amount.toLocaleString()} SDG*\n` +
-              `▫️ نوع العملية: *${dirLabel}*\n` +
-              (parsed.beneficiaryName ? `▫️ المستفيد: ${parsed.beneficiaryName}\n` : '') +
-              (parsed.transactionDate ? `▫️ تاريخ الإشعار: ${new Date(parsed.transactionDate).toLocaleString('ar-EG')}\n` : '') +
-              `\n📊 *الموقف المالي المحدث:*\n` +
-              `• إجمالي الوارد: ${stats.totalInward.toLocaleString()} SDG\n` +
-              `• إجمالي الصادر: ${stats.totalOutward.toLocaleString()} SDG\n` +
-              `• صافي الرصيد: ${stats.netBalance.toLocaleString()} SDG`;
+            botReplyText = WhatsAppResponseFormatter.formatSuccess({
+              transactionNumber: parsed.normalizedTxNumber,
+              amount: parsed.amount,
+              direction: conversation.direction as 'INWARD' | 'OUTWARD',
+              dateStr: parsed.formattedDate,
+              timeStr: parsed.formattedTime,
+              beneficiaryName: parsed.beneficiaryName,
+              receiverAccount: parsed.receiverAccount,
+              senderAccount: parsed.senderAccount,
+              stats: {
+                totalInward: stats.totalInward,
+                totalOutward: stats.totalOutward,
+                netBalance: stats.netBalance,
+                totalCount: stats.totalTransactions
+              }
+            });
             linkedTxId = regResult.transaction?.id;
           } else {
-            botReplyText = `❌ فشل التسجيل: ${regResult.message}`;
+            botReplyText = WhatsAppResponseFormatter.formatFailure(regResult.message);
           }
         }
       } catch (err: any) {
-        botReplyText = `❌ حدث خطأ أثناء معالجة صورة الإشعار: ${err.message}`;
+        botReplyText = WhatsAppResponseFormatter.formatFailure(err.message);
       }
     } else {
       // 3. Process Text Commands

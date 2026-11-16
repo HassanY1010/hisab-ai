@@ -380,6 +380,13 @@ export const OCRScannerModal: React.FC<OCRScannerModalProps> = ({ isOpen, onClos
                         />
                       </div>
 
+                      <div className="bg-white p-2.5 rounded-xl border border-slate-200 text-xs flex items-center justify-between font-bold">
+                        <span className="text-slate-600">تاريخ ووقت الإشعار المستخرج:</span>
+                        <span className="text-emerald-950 font-mono font-black">
+                          {ocrResult.ocr.formattedDateTime || (ocrResult.ocr.formattedDate ? `${ocrResult.ocr.formattedDate} (بدون وقت)` : 'غير متوفر')}
+                        </span>
+                      </div>
+
                       {ocrResult.ocr.senderAccount && (
                         <div className="text-[11px] text-slate-500">
                           من حساب: <strong className="font-mono">{ocrResult.ocr.senderAccount}</strong>

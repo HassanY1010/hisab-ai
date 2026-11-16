@@ -130,7 +130,7 @@ export class TransactionService {
           senderAccount: input.senderAccount,
           receiverAccount: input.receiverAccount,
           beneficiaryName: input.beneficiaryName,
-          transactionDate: input.transactionDate || new Date(),
+          transactionDate: input.transactionDate || null,
           imagePath: input.imagePath,
           storageKey: input.storageKey,
           extractedText: input.extractedText,

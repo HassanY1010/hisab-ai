@@ -11,7 +11,7 @@ import {
   Plus,
   X
 } from 'lucide-react';
-import { getAssetUrl } from '../api';
+import { getAssetUrl, formatDateTime } from '../api';
 
 interface TransactionsViewProps {
   direction?: 'INWARD' | 'OUTWARD';
@@ -128,10 +128,10 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                         <span>{tx.direction === 'INWARD' ? 'وارد' : 'صادر'}</span>
                       </span>
                     </td>
-                    <td className="py-3.5 px-4 text-xs font-bold text-slate-700">
-                      {tx.transactionDate ? new Date(tx.transactionDate).toLocaleString('ar-EG') : '-'}
+                    <td className="py-3.5 px-4 text-xs font-bold text-slate-900 font-mono">
+                      {formatDateTime(tx.transactionDate)}
                     </td>
-                    <td className="py-3.5 px-4 text-xs font-bold text-slate-600">
+                    <td className="py-3.5 px-4 text-xs font-semibold text-slate-600">
                       {new Date(tx.receivedAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'numeric' })}
                     </td>
                     <td className="py-3.5 px-4 text-xs text-slate-900">
@@ -214,8 +214,14 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                   <span className="font-bold text-slate-800 text-xs">{tx.beneficiaryName || '-'}</span>
                 </div>
                 <div>
-                  <span className="text-slate-500 font-bold block text-[11px]">تاريخ الاستلام:</span>
-                  <span className="font-bold text-slate-700 text-[11px]">
+                  <span className="text-slate-500 font-bold block text-[11px]">تاريخ الإشعار:</span>
+                  <span className="font-bold text-slate-800 text-[11px] font-mono">
+                    {formatDateTime(tx.transactionDate)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 font-bold block text-[11px]">استلام النظام:</span>
+                  <span className="font-semibold text-slate-600 text-[11px]">
                     {new Date(tx.receivedAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'numeric' })}
                   </span>
                 </div>
@@ -299,8 +305,15 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                 </div>
 
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  <span className="text-slate-500 font-bold block">تاريخ الإشعار وتاريخ النظام:</span>
-                  <span className="font-bold text-slate-700">
+                  <span className="text-slate-500 font-bold block">تاريخ ووقت الإشعار البنكي:</span>
+                  <span className="font-black text-slate-900 font-mono">
+                    {formatDateTime(selectedTx.transactionDate)}
+                  </span>
+                </div>
+
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  <span className="text-slate-500 font-bold block">تاريخ استلام النظام وتسجيله:</span>
+                  <span className="font-semibold text-slate-700">
                     {new Date(selectedTx.receivedAt).toLocaleString('ar-EG')}
                   </span>
                 </div>

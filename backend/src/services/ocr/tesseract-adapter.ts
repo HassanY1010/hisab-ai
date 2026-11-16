@@ -1,4 +1,6 @@
 import { createWorker, Worker } from 'tesseract.js';
+import path from 'path';
+import fs from 'fs';
 import { IOcrEngine, ParsedBankakReceipt } from './ocr-types';
 import { ImagePreprocessor } from './ocr-preprocessor';
 import { BankakReceiptParser } from './bankak-receipt-parser';
@@ -17,7 +19,17 @@ export class TesseractOcrAdapter implements IOcrEngine {
     }
     this.isInitializing = true;
     try {
-      this.worker = await createWorker(['eng', 'ara']);
+      const candidatePaths = [
+        path.resolve(__dirname, '../../..'),
+        process.cwd(),
+        path.resolve(process.cwd(), '..')
+      ];
+      const langPath = candidatePaths.find(p => fs.existsSync(path.join(p, 'ara.traineddata'))) || candidatePaths[0];
+
+      this.worker = await createWorker(['eng', 'ara'], 1, {
+        langPath,
+        gzip: false
+      });
       return this.worker;
     } finally {
       this.isInitializing = false;

@@ -9,7 +9,7 @@ import {
   ArrowRight,
   X
 } from 'lucide-react';
-import { getAssetUrl } from '../api';
+import { getAssetUrl, formatDateTime } from '../api';
 
 interface DuplicatesViewProps {
   duplicates: any[];
@@ -225,8 +225,14 @@ export const DuplicatesView: React.FC<DuplicatesViewProps> = ({ duplicates, onRe
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-500 font-bold block">تاريخ التسجيل الأول:</span>
-                    <span className="font-bold text-slate-700">
+                    <span className="text-slate-500 font-bold block">تاريخ الإشعار الأصلي:</span>
+                    <span className="font-bold text-slate-800 font-mono text-xs">
+                      {formatDateTime(selectedAttempt.originalTransaction?.transactionDate)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 font-bold block">تاريخ تسجيله بالنظام:</span>
+                    <span className="font-semibold text-slate-700 text-xs">
                       {selectedAttempt.originalTransaction?.createdAt
                         ? new Date(selectedAttempt.originalTransaction.createdAt).toLocaleString('ar-EG')
                         : 'غير متوفر'}

@@ -5,6 +5,14 @@ export interface ParsedBankakReceipt {
   amountRaw: string | null;
   currency: string;
   transactionDate: Date | null;
+  rawDateStr?: string | null;
+  rawTimeStr?: string | null;
+  rawDateTimeStr?: string | null;
+  formattedDate?: string | null;
+  formattedTime?: string | null;
+  formattedDateTime?: string | null;
+  hasTime?: boolean;
+  hasDate?: boolean;
   senderAccount: string | null;
   receiverAccount: string | null;
   beneficiaryName: string | null;
