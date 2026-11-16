@@ -10,6 +10,7 @@ import { SettingsView } from './components/SettingsView';
 import { WhatsAppSimulatorView } from './components/WhatsAppSimulatorView';
 import { OCRScannerModal } from './components/OCRScannerModal';
 import { DemoLoginModal } from './components/DemoLoginModal';
+import { BottomNav } from './components/BottomNav';
 import { api } from './api';
 import { Info, Sparkles, X } from 'lucide-react';
 
@@ -125,7 +126,7 @@ export function App() {
         />
 
         {/* Content Pane */}
-        <main className="flex-1 p-3.5 sm:p-6 overflow-y-auto min-h-0 w-full max-w-full overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
+        <main className="flex-1 p-2.5 sm:p-5 md:p-6 pb-24 md:pb-6 overflow-y-auto min-h-0 w-full max-w-full overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
           {activeTab === 'dashboard' && (
             <DashboardView
               stats={stats}
@@ -201,6 +202,14 @@ export function App() {
           )}
         </main>
       </div>
+
+      {/* Mobile Bottom Navigation Bar (Thumb Friendly) */}
+      <BottomNav
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+        duplicateCount={stats?.duplicateCount || 0}
+      />
 
       {/* OCR Scanner Modal */}
       <OCRScannerModal

@@ -13,7 +13,10 @@ import {
   MessageSquare,
   List,
   ChevronUp,
-  ChevronDown
+  ChevronDown,
+  Camera,
+  X,
+  Check
 } from 'lucide-react';
 import { api, getAssetUrl } from '../api';
 
@@ -25,7 +28,11 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
   const [samples, setSamples] = useState<any[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [mobileTab, setMobileTab] = useState<'conversations' | 'chat'>('chat');
+  const [stagedImageFile, setStagedImageFile] = useState<File | null>(null);
+  const [stagedImageUrl, setStagedImageUrl] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
@@ -140,13 +147,21 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !activeConv || isProcessing) return;
+    if (!file) return;
+    setStagedImageFile(file);
+    setStagedImageUrl(URL.createObjectURL(file));
+  };
 
+  const confirmSendStagedImage = async () => {
+    if (!stagedImageFile || !activeConv || isProcessing) return;
     setIsProcessing(true);
+    const fileToSend = stagedImageFile;
+    cancelStagedImage();
+
     try {
-      const res = await api.sendWhatsAppMessage(activeConv.id, '', file);
+      const res = await api.sendWhatsAppMessage(activeConv.id, '', fileToSend);
       if (res && res.success !== false) {
         await loadMessages(activeConv.id);
         onRefreshData();
@@ -155,8 +170,17 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
       alert(`فشل رفع الإشعار: ${err.message}`);
     } finally {
       setIsProcessing(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  const cancelStagedImage = () => {
+    if (stagedImageUrl) {
+      URL.revokeObjectURL(stagedImageUrl);
+    }
+    setStagedImageFile(null);
+    setStagedImageUrl(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (cameraInputRef.current) cameraInputRef.current.value = '';
   };
 
   const quickCommands = [
@@ -207,7 +231,7 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
       </div>
 
       {/* Main WhatsApp Window */}
-      <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden grid grid-cols-1 md:grid-cols-3 h-[75vh] min-h-[520px] max-h-[820px] md:h-[720px]">
+      <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden grid grid-cols-1 md:grid-cols-3 h-[calc(100dvh-15rem)] min-h-[480px] max-h-[820px] md:h-[720px]">
         {/* Left Sidebar: Conversations List & Sample Launchers */}
         <div className={`border-l border-slate-200 bg-slate-50 flex flex-col h-full min-h-0 ${
           mobileTab === 'conversations' ? 'flex' : 'hidden md:flex'
@@ -394,20 +418,72 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
             <div ref={messagesEndRef} />
           </div>
 
+          {/* Staged Image Preview Floating Banner */}
+          {stagedImageUrl && (
+            <div className="bg-emerald-50 border-t-2 border-emerald-500 p-2.5 sm:p-3 flex items-center justify-between gap-3 shadow-md">
+              <div className="flex items-center space-x-2.5 space-x-reverse min-w-0">
+                <img
+                  src={stagedImageUrl}
+                  alt="معاينة الإشعار"
+                  className="w-12 h-12 object-cover rounded-lg border border-emerald-300 shadow-2xs shrink-0"
+                />
+                <div className="min-w-0">
+                  <span className="text-xs font-black text-emerald-950 block truncate">
+                    {stagedImageFile?.name || 'إشعار تحويل بنكي'}
+                  </span>
+                  <span className="text-[11px] text-emerald-800 font-bold">
+                    جاهز للمسح والتحليل بالذكاء الاصطناعي
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-1.5 space-x-reverse shrink-0">
+                <button
+                  type="button"
+                  onClick={confirmSendStagedImage}
+                  disabled={isProcessing}
+                  className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black px-3 py-2 rounded-xl flex items-center space-x-1 space-x-reverse shadow-xs cursor-pointer touch-target"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>تأكيد وإرسال</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelStagedImage}
+                  className="p-2 text-slate-500 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer touch-target flex items-center justify-center"
+                  title="إلغاء الصورة"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Input Bar */}
-          <div className="p-3 bg-white border-t border-slate-200">
+          <div className="p-2 sm:p-3 bg-white border-t border-slate-200 sticky bottom-0 z-10 pb-safe">
             <form
               onSubmit={(e) => {
                 e.preventDefault();
                 handleSendMessage();
               }}
-              className="flex items-center space-x-2 space-x-reverse"
+              className="flex items-center space-x-1.5 sm:space-x-2 space-x-reverse"
             >
+              {/* Gallery / File Picker */}
               <input
                 type="file"
                 ref={fileInputRef}
                 accept="image/*"
-                onChange={handleFileUpload}
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+
+              {/* Camera Direct Capture (Mobile Supported) */}
+              <input
+                type="file"
+                ref={cameraInputRef}
+                accept="image/*"
+                capture="environment"
+                onChange={handleFileSelect}
                 className="hidden"
               />
 
@@ -415,28 +491,38 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isProcessing}
-                className="p-2.5 rounded-xl text-slate-700 hover:text-emerald-800 hover:bg-slate-100 transition-colors shrink-0"
-                title="إرفاق صورة إشعار بنكي من جهازك"
+                className="p-2 sm:p-2.5 rounded-xl text-slate-700 hover:text-emerald-800 hover:bg-slate-100 transition-colors shrink-0 touch-target flex items-center justify-center cursor-pointer"
+                title="إرفاق صورة إشعار من المعرض أو الملفات"
               >
                 <Paperclip className="w-5 h-5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => cameraInputRef.current?.click()}
+                disabled={isProcessing}
+                className="p-2 sm:p-2.5 rounded-xl text-slate-700 hover:text-emerald-800 hover:bg-slate-100 transition-colors shrink-0 touch-target flex items-center justify-center cursor-pointer"
+                title="التقاط صورة مباشرة بكاميرا الهاتف"
+              >
+                <Camera className="w-5 h-5 text-emerald-800" />
               </button>
 
               <input
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                placeholder="اكتب استفساراً محاسبياً (مثل: الإجمالي، تقرير اليوم)..."
+                placeholder="اكتب استفساراً محاسبياً (الإجمالي، تقرير اليوم)..."
                 disabled={isProcessing}
-                className="flex-1 px-4 py-2.5 bg-slate-100 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:bg-white"
+                className="flex-1 px-3 sm:px-4 py-2 sm:py-2.5 bg-slate-100 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:bg-white"
               />
 
               <button
                 type="submit"
                 disabled={!inputText.trim() || isProcessing}
-                className="p-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-40 text-white transition-all shadow-sm shrink-0 cursor-pointer"
+                className="p-2.5 sm:p-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-40 text-white transition-all shadow-sm shrink-0 cursor-pointer touch-target flex items-center justify-center"
                 title="إرسال"
               >
-                <Send className="w-5 h-5" />
+                <Send className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
             </form>
           </div>

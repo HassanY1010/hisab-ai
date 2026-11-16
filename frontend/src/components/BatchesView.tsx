@@ -236,7 +236,7 @@ export const BatchesView: React.FC<BatchesViewProps> = ({ batches, allTransactio
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-4 sm:space-x-6 space-x-reverse self-stretch md:self-auto justify-between md:justify-end border-t md:border-t-0 pt-3 md:pt-0">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 self-stretch md:self-auto border-t md:border-t-0 pt-3 md:pt-0">
                     <div className="text-right sm:text-left">
                       <div className="text-xs font-bold text-slate-600">إجمالي مبالغ السير</div>
                       <div className={`text-base sm:text-lg font-black ${batch.direction === 'INWARD' ? 'text-emerald-800' : 'text-rose-800'}`}>
@@ -245,7 +245,7 @@ export const BatchesView: React.FC<BatchesViewProps> = ({ batches, allTransactio
                       <div className="text-[11px] font-bold text-slate-600">{batch.transactionCount} عملية مسجلة</div>
                     </div>
 
-                    <div className="flex items-center space-x-2 space-x-reverse">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       {batch.status === 'OPEN' && (
                         <>
                           <button
@@ -253,7 +253,7 @@ export const BatchesView: React.FC<BatchesViewProps> = ({ batches, allTransactio
                               setTargetBatchForAdd(batch);
                               setShowAddTxModal(true);
                             }}
-                            className="bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800 text-xs px-2.5 py-1.5 rounded-lg font-bold transition-colors cursor-pointer"
+                            className="bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800 text-xs px-2.5 py-1.5 rounded-lg font-bold transition-colors cursor-pointer touch-target flex items-center justify-center"
                             title="إضافة عمليات إلى هذا السير"
                           >
                             + إضافة عمليات
@@ -264,7 +264,7 @@ export const BatchesView: React.FC<BatchesViewProps> = ({ batches, allTransactio
                                 setSplitSourceBatch(batch);
                                 setShowSplitModal(true);
                               }}
-                              className="bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800 text-xs px-2.5 py-1.5 rounded-lg font-bold flex items-center space-x-1 space-x-reverse transition-colors cursor-pointer"
+                              className="bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800 text-xs px-2.5 py-1.5 rounded-lg font-bold flex items-center space-x-1 space-x-reverse transition-colors cursor-pointer touch-target justify-center"
                               title="فصل جزء من العمليات في سير مستقل"
                             >
                               <Split className="w-3.5 h-3.5" />
@@ -276,7 +276,7 @@ export const BatchesView: React.FC<BatchesViewProps> = ({ batches, allTransactio
 
                       <button
                         onClick={() => handleToggleStatus(batch.id, batch.status)}
-                        className={`text-xs px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1 space-x-reverse transition-colors cursor-pointer ${
+                        className={`text-xs px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1 space-x-reverse transition-colors cursor-pointer touch-target justify-center ${
                           batch.status === 'OPEN'
                             ? 'bg-amber-100 text-amber-950 border border-amber-300 hover:bg-amber-200'
                             : 'bg-emerald-100 text-emerald-950 border border-emerald-300 hover:bg-emerald-200'
@@ -289,7 +289,7 @@ export const BatchesView: React.FC<BatchesViewProps> = ({ batches, allTransactio
 
                       <button
                         onClick={() => setExpandedBatchId(isExpanded ? null : batch.id)}
-                        className="p-1.5 text-slate-600 hover:text-slate-950 rounded-lg hover:bg-slate-100 border border-slate-200 cursor-pointer"
+                        className="p-1.5 text-slate-600 hover:text-slate-950 rounded-lg hover:bg-slate-100 border border-slate-200 cursor-pointer touch-target flex items-center justify-center"
                         title={isExpanded ? 'طي العمليات' : 'عرض العمليات المدرجة'}
                       >
                         {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
@@ -389,38 +389,38 @@ export const BatchesView: React.FC<BatchesViewProps> = ({ batches, allTransactio
 
       {/* Modal: Create Batch */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <form onSubmit={handleCreateBatch} className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4">
-            <h3 className="text-base font-bold text-slate-900">إنشاء سير مالي جديد</h3>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4">
+          <form onSubmit={handleCreateBatch} className="bg-white rounded-2xl sm:rounded-3xl max-w-md w-full p-5 sm:p-6 space-y-4 max-h-[90dvh] overflow-y-auto shadow-2xl">
+            <h3 className="text-base font-black text-slate-900">إنشاء سير مالي جديد</h3>
             <div>
-              <label className="text-xs font-medium text-slate-600 block mb-1">اسم السير *</label>
+              <label className="text-xs font-bold text-slate-700 block mb-1">اسم السير *</label>
               <input
                 type="text"
                 required
                 value={newBatchName}
                 onChange={(e) => setNewBatchName(e.target.value)}
                 placeholder="مثال: سير واردات الصباح 1"
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-petroleum-800/20"
+                className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-700/30"
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-600 block mb-1">نوع السير *</label>
+              <label className="text-xs font-bold text-slate-700 block mb-1">نوع السير *</label>
               <select
                 value={newBatchDirection}
                 onChange={(e) => setNewBatchDirection(e.target.value as any)}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-petroleum-800/20"
+                className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-700/30"
               >
                 <option value="INWARD">وارد (تحويلات مستلمة)</option>
                 <option value="OUTWARD">صادر (تحويلات مدفوعة)</option>
               </select>
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-600 block mb-1">ملاحظات (اختياري)</label>
+              <label className="text-xs font-bold text-slate-700 block mb-1">ملاحظات (اختياري)</label>
               <textarea
                 value={newBatchNotes}
                 onChange={(e) => setNewBatchNotes(e.target.value)}
                 placeholder="أية ملاحظات خاصة بالسير..."
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-petroleum-800/20"
+                className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs sm:text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-700/30"
                 rows={2}
               />
             </div>
@@ -428,13 +428,13 @@ export const BatchesView: React.FC<BatchesViewProps> = ({ batches, allTransactio
               <button
                 type="button"
                 onClick={() => setShowCreateModal(false)}
-                className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
+                className="px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-xl cursor-pointer touch-target flex items-center justify-center"
               >
                 إلغاء
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 text-xs font-bold bg-petroleum-800 text-white rounded-lg hover:bg-petroleum-900"
+                className="px-5 py-2.5 text-xs font-black bg-teal-800 text-white rounded-xl hover:bg-teal-900 shadow-xs cursor-pointer touch-target flex items-center justify-center"
               >
                 إنشاء السير
               </button>
@@ -445,16 +445,16 @@ export const BatchesView: React.FC<BatchesViewProps> = ({ batches, allTransactio
 
       {/* Modal: Merge Batches */}
       {showMergeModal && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <form onSubmit={handleMergeSubmit} className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4">
-            <h3 className="text-base font-bold text-slate-900">دمج سيرين أو أكثر</h3>
-            <p className="text-xs text-slate-500">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4">
+          <form onSubmit={handleMergeSubmit} className="bg-white rounded-2xl sm:rounded-3xl max-w-lg w-full p-5 sm:p-6 space-y-4 max-h-[90dvh] overflow-y-auto shadow-2xl">
+            <h3 className="text-base font-black text-slate-900">دمج سيرين أو أكثر</h3>
+            <p className="text-xs font-medium text-slate-600 leading-relaxed">
               اختر السير المراد دمجها من نفس النوع (وارد مع وارد أو صادر مع صادر). سيتم نقل جميع العمليات إلى السير الجديد مع الحفاظ على أرقامها الأصلية.
             </p>
 
             <div className="space-y-2 max-h-48 overflow-y-auto border border-slate-200 rounded-xl p-3">
               {batches.map((b) => (
-                <label key={b.id} className="flex items-center space-x-2 space-x-reverse text-xs p-1.5 hover:bg-slate-50 rounded cursor-pointer">
+                <label key={b.id} className="flex items-center space-x-2 space-x-reverse text-xs p-2 hover:bg-slate-50 rounded-lg cursor-pointer">
                   <input
                     type="checkbox"
                     checked={selectedBatchIdsForMerge.includes(b.id)}
@@ -465,23 +465,23 @@ export const BatchesView: React.FC<BatchesViewProps> = ({ batches, allTransactio
                         setSelectedBatchIdsForMerge(selectedBatchIdsForMerge.filter(id => id !== b.id));
                       }
                     }}
-                    className="rounded text-petroleum-800"
+                    className="rounded text-teal-800"
                   />
-                  <span className="font-semibold">{b.name}</span>
-                  <span className="text-slate-400">({b.direction === 'INWARD' ? 'وارد' : 'صادر'} - {b.totalAmount.toLocaleString()} SDG - {b.transactionCount} عملية)</span>
+                  <span className="font-bold text-slate-900">{b.name}</span>
+                  <span className="text-slate-500 font-semibold">({b.direction === 'INWARD' ? 'وارد' : 'صادر'} - {b.totalAmount.toLocaleString()} SDG - {b.transactionCount} عملية)</span>
                 </label>
               ))}
             </div>
 
             <div>
-              <label className="text-xs font-medium text-slate-600 block mb-1">اسم السير المجمع الجديد *</label>
+              <label className="text-xs font-bold text-slate-700 block mb-1">اسم السير المجمع الجديد *</label>
               <input
                 type="text"
                 required
                 value={mergedBatchName}
                 onChange={(e) => setMergedBatchName(e.target.value)}
                 placeholder="مثال: سير اليوم المجمع"
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none"
+                className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-700/30"
               />
             </div>
 
@@ -489,13 +489,13 @@ export const BatchesView: React.FC<BatchesViewProps> = ({ batches, allTransactio
               <button
                 type="button"
                 onClick={() => setShowMergeModal(false)}
-                className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
+                className="px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-xl cursor-pointer touch-target flex items-center justify-center"
               >
                 إلغاء
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 text-xs font-bold bg-petroleum-800 text-white rounded-lg hover:bg-petroleum-900"
+                className="px-5 py-2.5 text-xs font-black bg-teal-800 text-white rounded-xl hover:bg-teal-900 shadow-xs cursor-pointer touch-target flex items-center justify-center"
               >
                 تنفيذ الدمج
               </button>
@@ -506,16 +506,16 @@ export const BatchesView: React.FC<BatchesViewProps> = ({ batches, allTransactio
 
       {/* Modal: Split Batch */}
       {showSplitModal && splitSourceBatch && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <form onSubmit={handleSplitSubmit} className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4">
-            <h3 className="text-base font-bold text-slate-900">فصل عمليات من: {splitSourceBatch.name}</h3>
-            <p className="text-xs text-slate-500">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4">
+          <form onSubmit={handleSplitSubmit} className="bg-white rounded-2xl sm:rounded-3xl max-w-lg w-full p-5 sm:p-6 space-y-4 max-h-[90dvh] overflow-y-auto shadow-2xl">
+            <h3 className="text-base font-black text-slate-900">فصل عمليات من: {splitSourceBatch.name}</h3>
+            <p className="text-xs font-medium text-slate-600 leading-relaxed">
               حدد العمليات التي ترغب في فصلها ونقلها إلى سير جديد منفصل:
             </p>
 
             <div className="space-y-2 max-h-48 overflow-y-auto border border-slate-200 rounded-xl p-3">
               {splitSourceBatch.transactions.map((t: any) => (
-                <label key={t.id} className="flex items-center space-x-2 space-x-reverse text-xs p-1.5 hover:bg-slate-50 rounded cursor-pointer">
+                <label key={t.id} className="flex items-center space-x-2 space-x-reverse text-xs p-2 hover:bg-slate-50 rounded-lg cursor-pointer">
                   <input
                     type="checkbox"
                     checked={selectedTxIdsForSplit.includes(t.id)}
@@ -526,24 +526,24 @@ export const BatchesView: React.FC<BatchesViewProps> = ({ batches, allTransactio
                         setSelectedTxIdsForSplit(selectedTxIdsForSplit.filter(id => id !== t.id));
                       }
                     }}
-                    className="rounded text-petroleum-800"
+                    className="rounded text-teal-800"
                   />
-                  <span className="font-mono font-bold">{t.transactionNumber}</span>
-                  <span className="font-semibold text-emerald-700">{t.amount.toLocaleString()} SDG</span>
-                  <span className="text-slate-400">({t.beneficiaryName || '-'})</span>
+                  <span className="font-mono font-bold text-slate-900">{t.transactionNumber}</span>
+                  <span className="font-bold text-emerald-800">{t.amount.toLocaleString()} SDG</span>
+                  <span className="text-slate-500 font-semibold truncate">({t.beneficiaryName || '-'})</span>
                 </label>
               ))}
             </div>
 
             <div>
-              <label className="text-xs font-medium text-slate-600 block mb-1">اسم السير الجديد للعمليات المفصولة *</label>
+              <label className="text-xs font-bold text-slate-700 block mb-1">اسم السير الجديد للعمليات المفصولة *</label>
               <input
                 type="text"
                 required
                 value={splitBatchName}
                 onChange={(e) => setSplitBatchName(e.target.value)}
                 placeholder="مثال: سير العمليات المسائية المفصولة"
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none"
+                className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-700/30"
               />
             </div>
 
@@ -551,13 +551,13 @@ export const BatchesView: React.FC<BatchesViewProps> = ({ batches, allTransactio
               <button
                 type="button"
                 onClick={() => setShowSplitModal(false)}
-                className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
+                className="px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-xl cursor-pointer touch-target flex items-center justify-center"
               >
                 إلغاء
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 text-xs font-bold bg-petroleum-800 text-white rounded-lg hover:bg-petroleum-900"
+                className="px-5 py-2.5 text-xs font-black bg-teal-800 text-white rounded-xl hover:bg-teal-900 shadow-xs cursor-pointer touch-target flex items-center justify-center"
               >
                 تنفيذ الفصل
               </button>
@@ -568,10 +568,10 @@ export const BatchesView: React.FC<BatchesViewProps> = ({ batches, allTransactio
 
       {/* Modal: Add Transactions to Batch */}
       {showAddTxModal && targetBatchForAdd && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <form onSubmit={handleAddTxSubmit} className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4">
-            <h3 className="text-base font-bold text-slate-900">إضافة عمليات إلى: {targetBatchForAdd.name}</h3>
-            <p className="text-xs text-slate-500">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4">
+          <form onSubmit={handleAddTxSubmit} className="bg-white rounded-2xl sm:rounded-3xl max-w-lg w-full p-5 sm:p-6 space-y-4 max-h-[90dvh] overflow-y-auto shadow-2xl">
+            <h3 className="text-base font-black text-slate-900">إضافة عمليات إلى: {targetBatchForAdd.name}</h3>
+            <p className="text-xs font-medium text-slate-600 leading-relaxed">
               حدد العمليات من نوع ({targetBatchForAdd.direction === 'INWARD' ? 'وارد' : 'صادر'}) لإدراجها داخل هذا السير:
             </p>
 
@@ -581,7 +581,7 @@ export const BatchesView: React.FC<BatchesViewProps> = ({ batches, allTransactio
                 .map((t) => {
                   const alreadyInBatch = targetBatchForAdd.transactions.some((bt: any) => bt.id === t.id);
                   return (
-                    <label key={t.id} className={`flex items-center space-x-2 space-x-reverse text-xs p-1.5 rounded cursor-pointer ${alreadyInBatch ? 'opacity-50' : 'hover:bg-slate-50'}`}>
+                    <label key={t.id} className={`flex items-center space-x-2 space-x-reverse text-xs p-2 rounded-lg cursor-pointer ${alreadyInBatch ? 'opacity-50' : 'hover:bg-slate-50'}`}>
                       <input
                         type="checkbox"
                         disabled={alreadyInBatch}
@@ -593,12 +593,12 @@ export const BatchesView: React.FC<BatchesViewProps> = ({ batches, allTransactio
                             setSelectedTxIdsToAdd(selectedTxIdsToAdd.filter(id => id !== t.id));
                           }
                         }}
-                        className="rounded text-petroleum-800"
+                        className="rounded text-teal-800"
                       />
-                      <span className="font-mono font-bold">{t.transactionNumber}</span>
-                      <span className="font-semibold text-slate-800">{t.amount.toLocaleString()} SDG</span>
-                      <span className="text-slate-400">({t.beneficiaryName || '-'})</span>
-                      {alreadyInBatch && <span className="text-[10px] text-slate-400">(موجودة مسبقاً)</span>}
+                      <span className="font-mono font-bold text-slate-900">{t.transactionNumber}</span>
+                      <span className="font-bold text-slate-800">{t.amount.toLocaleString()} SDG</span>
+                      <span className="text-slate-500 font-semibold truncate">({t.beneficiaryName || '-'})</span>
+                      {alreadyInBatch && <span className="text-[10px] text-slate-400 font-bold">(موجودة مسبقاً)</span>}
                     </label>
                   );
                 })}
@@ -608,13 +608,13 @@ export const BatchesView: React.FC<BatchesViewProps> = ({ batches, allTransactio
               <button
                 type="button"
                 onClick={() => setShowAddTxModal(false)}
-                className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
+                className="px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-xl cursor-pointer touch-target flex items-center justify-center"
               >
                 إلغاء
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 text-xs font-bold bg-petroleum-800 text-white rounded-lg hover:bg-petroleum-900"
+                className="px-5 py-2.5 text-xs font-black bg-teal-800 text-white rounded-xl hover:bg-teal-900 shadow-xs cursor-pointer touch-target flex items-center justify-center"
               >
                 إضافة المحددة ({selectedTxIdsToAdd.length})
               </button>

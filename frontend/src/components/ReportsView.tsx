@@ -260,7 +260,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ batches }) => {
           </button>
         </div>
 
-        <div className="overflow-x-auto">
+        {/* Desktop Table View */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-right text-sm">
             <thead className="bg-slate-50 text-slate-800 text-xs font-black border-b border-slate-200">
               <tr>
@@ -307,6 +308,53 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ batches }) => {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile Responsive Cards View */}
+        <div className="block md:hidden divide-y divide-slate-100">
+          {reportData?.transactions && reportData.transactions.length > 0 ? (
+            reportData.transactions.map((tx: any) => (
+              <div key={tx.id} className="p-3.5 space-y-2 hover:bg-slate-50 transition-colors">
+                <div className="flex items-center justify-between">
+                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
+                    tx.direction === 'INWARD' ? 'bg-emerald-100 text-emerald-900' : 'bg-rose-100 text-rose-900'
+                  }`}>
+                    {tx.direction === 'INWARD' ? 'تحويل وارد' : 'تحويل صادر'}
+                  </span>
+                  <div className={`text-sm font-black ${tx.direction === 'INWARD' ? 'text-emerald-800' : 'text-rose-800'}`}>
+                    {Number(tx.amount).toLocaleString()} <span className="text-[10px] font-bold">SDG</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-1 text-[11px] text-slate-600 font-semibold pt-1">
+                  <div>
+                    <span className="text-slate-400 block text-[10px]">رقم العملية:</span>
+                    <span className="font-mono font-black text-slate-900 text-xs">{tx.transactionNumber}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[10px]">المستفيد:</span>
+                    <span className="font-bold text-slate-800 truncate block">{tx.beneficiaryName || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[10px]">تاريخ الإشعار:</span>
+                    <span className="font-mono font-bold text-slate-800">
+                      {tx.transactionDate ? formatDateTime(tx.transactionDate) : new Date(tx.receivedAt).toLocaleDateString('ar-EG')}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[10px]">السير:</span>
+                    <span className="font-bold text-slate-700 truncate block">
+                      {tx.batchTransactions?.map((bt: any) => bt.batch.name).join(', ') || 'بدون سير'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="p-8 text-center text-slate-500 font-bold text-xs">
+              {loading ? 'جاري تحميل التقرير...' : 'لا توجد بيانات مطابقة للشروط المحددة.'}
+            </div>
+          )}
         </div>
       </div>
     </div>
