@@ -6,7 +6,7 @@
     "start": "cd backend && npx tsx src/index.ts",
     "dev": "cd backend && npx tsx watch src/index.ts",
     "build:frontend": "cd frontend && npm run build",
-    "build": "cd frontend && npm run build",
+    "build": "cd backend && npm install && npx prisma generate && cd ../frontend && npm install && npm run build",
     "postinstall": "cd backend && npx prisma generate",
     "test": "cd backend && npx vitest run",
     "test:ocr": "cd backend && npx tsx src/scripts/run-all-samples-test.ts",
