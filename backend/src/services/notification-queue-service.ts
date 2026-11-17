@@ -337,24 +337,54 @@ export class NotificationQueueService {
         linkedTxId = orig?.id;
       } else if (regResult.status === 'SUCCESS') {
         finalJobStatus = 'REGISTERED';
-        const stats = await TransactionService.getFinancialStats();
-        botReplyText = WhatsAppResponseFormatter.formatSuccess({
-          transactionNumber: parsed.normalizedTxNumber,
-          amount: parsed.amount,
-          direction: job.direction as 'INWARD' | 'OUTWARD',
-          dateStr: parsed.formattedDate,
-          timeStr: parsed.formattedTime,
-          beneficiaryName: parsed.beneficiaryName,
-          receiverAccount: parsed.receiverAccount,
-          senderAccount: parsed.senderAccount,
-          stats: {
-            totalInward: stats.totalInward,
-            totalOutward: stats.totalOutward,
-            netBalance: stats.netBalance,
-            totalCount: stats.totalTransactions
-          }
-        });
         linkedTxId = regResult.transaction?.id;
+
+        // Check if this notification belongs to a bulk batch
+        let isBulkBatch = false;
+        if (job.batchId) {
+          const batchInfo = await prisma.notificationBatch.findUnique({
+            where: { id: job.batchId },
+            select: { totalJobs: true, _count: { select: { jobs: true } } }
+          });
+          if (batchInfo && (batchInfo.totalJobs > 1 || batchInfo._count.jobs > 1)) {
+            isBulkBatch = true;
+          }
+        }
+
+        if (isBulkBatch) {
+          // Bulk Mode: Send receipt confirmation with verified details,
+          // without displaying out-of-order running totals while parallel workers are executing.
+          // Accurate final financial totals are delivered in the final batch summary.
+          botReplyText = WhatsAppResponseFormatter.formatSuccess({
+            transactionNumber: parsed.normalizedTxNumber,
+            amount: parsed.amount,
+            direction: job.direction as 'INWARD' | 'OUTWARD',
+            dateStr: parsed.formattedDate,
+            timeStr: parsed.formattedTime,
+            beneficiaryName: parsed.beneficiaryName,
+            receiverAccount: parsed.receiverAccount,
+            senderAccount: parsed.senderAccount
+          });
+        } else {
+          // Single Mode: Fetch real-time financial stats and include running totals
+          const stats = await TransactionService.getFinancialStats();
+          botReplyText = WhatsAppResponseFormatter.formatSuccess({
+            transactionNumber: parsed.normalizedTxNumber,
+            amount: parsed.amount,
+            direction: job.direction as 'INWARD' | 'OUTWARD',
+            dateStr: parsed.formattedDate,
+            timeStr: parsed.formattedTime,
+            beneficiaryName: parsed.beneficiaryName,
+            receiverAccount: parsed.receiverAccount,
+            senderAccount: parsed.senderAccount,
+            stats: {
+              totalInward: stats.totalInward,
+              totalOutward: stats.totalOutward,
+              netBalance: stats.netBalance,
+              totalCount: stats.totalTransactions
+            }
+          });
+        }
       } else {
         finalJobStatus = 'FAILED';
         botReplyText = WhatsAppResponseFormatter.formatFailure();
@@ -469,6 +499,11 @@ export class NotificationQueueService {
         await this.finalizeBatchSummary(batchId);
       } catch (err: any) {
         console.error(`[Queue] Failed to finalize batch summary for ${batchId}:`, err);
+        // Reset status to PROCESSING so it can be retried
+        await prisma.notificationBatch.updateMany({
+          where: { id: batchId, status: 'FINALIZING' },
+          data: { status: 'PROCESSING' }
+        }).catch(() => {});
       } finally {
         this.batchDebounceTimers.delete(batchId);
       }
@@ -492,17 +527,17 @@ export class NotificationQueueService {
 
     if (!batch || batch.summarySent || batch.jobs.length === 0) return;
 
-    // Check if any job is still QUEUED or PROCESSING
+    // Check if all jobs in the batch have completed
     const pendingCount = batch.jobs.filter(j => j.status === 'QUEUED' || j.status === 'PROCESSING').length;
-    if (pendingCount > 0) {
-      // Some jobs are still running, do not emit summary yet!
+    if (batch.jobs.length < batch.totalJobs || pendingCount > 0) {
+      // Some jobs are still running or not all jobs loaded, do not emit summary yet!
       return;
     }
 
-    // Atomic lock to guarantee summary is only generated and sent ONCE per batch
+    // Atomic lock: transition status to FINALIZING so only one worker ever builds and sends the summary
     const claimed = await prisma.notificationBatch.updateMany({
-      where: { id: batchId, summarySent: false },
-      data: { summarySent: true }
+      where: { id: batchId, status: 'PROCESSING', summarySent: false },
+      data: { status: 'FINALIZING' }
     });
     if (claimed.count === 0) return;
 
@@ -511,7 +546,7 @@ export class NotificationQueueService {
       // Single notification already has its own comprehensive success response
       await prisma.notificationBatch.update({
         where: { id: batchId },
-        data: { status: 'COMPLETED', summarySent: true, completedAt: new Date() }
+        data: { status: 'COMPLETED', completedAt: new Date() }
       });
       return;
     }

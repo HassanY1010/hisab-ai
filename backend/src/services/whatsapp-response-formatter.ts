@@ -7,7 +7,7 @@ export interface WhatsAppSuccessParams {
   beneficiaryName?: string | null;
   receiverAccount?: string | null;
   senderAccount?: string | null;
-  stats: {
+  stats?: {
     totalInward: number;
     totalOutward: number;
     netBalance: number;
@@ -112,13 +112,16 @@ export class WhatsAppResponseFormatter {
       lines.push(`▫️ ${accountLabel}: ${maskedAccount}`);
     }
 
-    lines.push('');
-    lines.push('📊 *الموقف المالي الحالي*');
-    lines.push('');
-    lines.push(`▫️ إجمالي الوارد: *${params.stats.totalInward.toLocaleString('en-US')} SDG*`);
-    lines.push(`▫️ إجمالي الصادر: *${params.stats.totalOutward.toLocaleString('en-US')} SDG*`);
-    lines.push(`▫️ صافي الفرق: *${params.stats.netBalance.toLocaleString('en-US')} SDG*`);
-    lines.push(`▫️ عدد العمليات: *${params.stats.totalCount}*`);
+    if (params.stats) {
+      lines.push('');
+      lines.push('📊 *الموقف المالي الحالي*');
+      lines.push('');
+      lines.push(`▫️ إجمالي الوارد: *${params.stats.totalInward.toLocaleString('en-US')} SDG*`);
+      lines.push(`▫️ إجمالي الصادر: *${params.stats.totalOutward.toLocaleString('en-US')} SDG*`);
+      lines.push(`▫️ صافي الفرق: *${params.stats.netBalance.toLocaleString('en-US')} SDG*`);
+      lines.push(`▫️ عدد العمليات: *${params.stats.totalCount}*`);
+    }
+
     lines.push('');
     lines.push('📌 تم حفظ بيانات الإشعار بنجاح.');
 
