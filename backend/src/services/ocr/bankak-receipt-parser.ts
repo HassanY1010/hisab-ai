@@ -147,7 +147,8 @@ export class BankakReceiptParser {
     }
 
     // 5. Beneficiary / Sender / Client Name extraction
-    const prefixRegex = /.*(?:إ?سم\s*(?:المرسل\s*إ?ليه|المحول\s*إ?ليه|المستفيد|المرسل|المحول|العميل|الحساب)|(?:المرسل|المحول)\s*إ?ليه|المستفيد|المستلم|المرسل)[:\s|\-]*/i;
+    // Comprehensive prefix regex supporting all Bankak labels and OCR variants (e.g. 5 لمرسل, إسم المستفيد, إسم المرسل إليه)
+    const prefixRegex = /^(?:[\d\W_]*)(?:(?:إ?سم|اسم|لسم|أسم)\s*)?(?:المرسل|لمرسل|مرسل|المستفيد|لمستفيد|مستفيد|المحول|لمحول|محول|الطرف\s*المستلم|الطرف\s*الآخر|العميل|الحساب)(?:\s*(?:إ?ليه|اليه|له))?[:\s|\-]*/i;
 
     const isNonName = (val: string) => {
       const v = val.trim().toLowerCase();
@@ -156,24 +157,34 @@ export class BankakReceiptParser {
         /^\d+$/.test(v) ||
         /^(n\/?a|لا\s*يوجد|غير\s*متوفر|null|undefined)$/i.test(v) ||
         /^(إ?ليه|اليه|له)$/i.test(v) ||
-        /^(تحويلات|رقم|العملية|التاريخ|الزمن|من|الى|إلى|حساب|المبلغ|التعليق|الموبايل|إضافة|مستفيد|بنك|الخرطوم)/i.test(v)
+        /^(تحويل|تحويلات|رقم|العملية|التاريخ|الزمن|من|الى|إلى|حساب|المبلغ|التعليق|الموبايل|إضافة|اضافة|مستفيد|بنك|الخرطوم|مشاركة|طباعة|تحميل|موافق)/i.test(v) ||
+        /(مرة\s*اخرى|اضافة\s*مستفيد|إضافة\s*مستفيد)/i.test(v)
       );
+    };
+
+    const cleanName = (str: string) => {
+      return str.replace(/[^\u0621-\u064A\s]/g, ' ').replace(/\s+/g, ' ').trim();
     };
 
     // Strategy 1: Comprehensive keyword extraction
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
+      // Ignore footer UI buttons
+      if (/إضافة\s*مستفيد|اضافة\s*مستفيد/i.test(line)) continue;
+
       if (prefixRegex.test(line)) {
-        let cleaned = line.replace(prefixRegex, '').replace(/^(?:إ?ليه|اليه|له)[:\s\-|]*/i, '').trim();
-        if (!isNonName(cleaned) && /^[\u0621-\u064A\s]{3,}$/.test(cleaned)) {
+        const stripped = line.replace(prefixRegex, '').trim();
+        const cleaned = cleanName(stripped);
+        if (cleaned.length >= 3 && !isNonName(cleaned)) {
           beneficiaryName = cleaned;
           break;
         }
         // Check following 1-2 lines in case label and name are on separate lines
         for (let j = 1; j <= 2 && i + j < lines.length; j++) {
-          const nextCandidate = lines[i + j].replace(/[:：|\-]/g, '').trim();
-          if (!isNonName(nextCandidate) && /^[\u0621-\u064A\s]{3,}$/.test(nextCandidate)) {
-            beneficiaryName = nextCandidate;
+          if (/إضافة\s*مستفيد|اضافة\s*مستفيد/i.test(lines[i + j])) continue;
+          const next = cleanName(lines[i + j]);
+          if (next.length >= 3 && !isNonName(next)) {
+            beneficiaryName = next;
             break;
           }
         }
@@ -195,8 +206,10 @@ export class BankakReceiptParser {
 
       if (toAccountIdx !== -1 && mobileOrAmountIdx !== -1) {
         for (let k = toAccountIdx + 1; k < mobileOrAmountIdx; k++) {
-          const candidate = lines[k].replace(prefixRegex, '').replace(/^(?:إ?ليه|اليه|له)[:\s\-|]*/i, '').trim();
-          if (!isNonName(candidate) && /^[\u0621-\u064A\s]{3,}$/.test(candidate)) {
+          if (/إضافة\s*مستفيد|اضافة\s*مستفيد/i.test(lines[k])) continue;
+          const stripped = lines[k].replace(prefixRegex, '').trim();
+          const candidate = cleanName(stripped);
+          if (candidate.length >= 3 && !isNonName(candidate) && candidate.split(' ').length >= 2) {
             beneficiaryName = candidate;
             break;
           }
