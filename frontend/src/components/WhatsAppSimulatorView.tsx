@@ -268,6 +268,203 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
     'تصدير Excel'
   ];
 
+  const renderMessageContent = (m: any) => {
+    let meta: any = null;
+    try {
+      if (m.metadata) meta = JSON.parse(m.metadata);
+    } catch {}
+
+    // 1. Batch Live Progress Card
+    if (meta?.type === 'BATCH_PROGRESS' || m.text.includes('جاري استقبال ومعالجة الإشعارات')) {
+      const total = meta?.total || (() => {
+        const match = m.text.match(/من\s+(\d+)/);
+        return match ? parseInt(match[1], 10) : 0;
+      })();
+      const completed = meta?.completed !== undefined ? meta.completed : (() => {
+        const match = m.text.match(/معالجة:\s*\*?(\d+)/);
+        return match ? parseInt(match[1], 10) : 0;
+      })();
+      const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+      return (
+        <div className="space-y-2.5 py-1 min-w-[240px] sm:min-w-[280px]">
+          <div className="flex items-center space-x-2 space-x-reverse text-emerald-950 font-black text-xs sm:text-sm">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 animate-ping shrink-0" />
+            <span>⏳ جاري استقبال ومعالجة الإشعارات...</span>
+          </div>
+          <div className="w-full bg-emerald-200/80 rounded-full h-2.5 overflow-hidden">
+            <div
+              className="bg-gradient-to-r from-emerald-600 to-teal-600 h-2.5 rounded-full transition-all duration-300"
+              style={{ width: `${Math.min(pct, 100)}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between text-[11px] font-black text-emerald-950">
+            <span>تمت معالجة {completed} من {total}</span>
+            <span className="bg-emerald-200/90 px-2 py-0.5 rounded-md font-mono">{pct}%</span>
+          </div>
+          <div className="text-[10px] text-emerald-800 font-semibold flex items-center space-x-1 space-x-reverse">
+            <Sparkles className="w-3 h-3 text-emerald-600 shrink-0" />
+            <span>يتم استخراج الأسماء والأرقام والمبالغ والتحقق من التكرار آلياً...</span>
+          </div>
+        </div>
+      );
+    }
+
+    // 2. Batch Table Summary Card (Matching user reference image)
+    if (meta?.type === 'BATCH_TABLE_SUMMARY' || m.text.includes('| # |')) {
+      let rows: Array<{ index: number; name: string; txNumber: string; amount: number | string }> = meta?.rows || [];
+      let totalCount = meta?.totalReceived || 0;
+      let totalAmount = meta?.totalAmount ? meta.totalAmount.toLocaleString('en-US') + ' SDG' : '';
+      let duplicateCount = meta?.duplicateCount || 0;
+      let reviewCount = meta?.reviewCount || 0;
+      let failedCount = meta?.failedCount || 0;
+
+      // Fallback: parse markdown table if metadata was not structured
+      if (rows.length === 0) {
+        const lines = m.text.split('\n');
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('|') && !trimmed.includes('|---|') && !trimmed.includes('| # |')) {
+            const cols = trimmed.split('|').map((c: string) => c.trim()).filter(Boolean);
+            if (cols.length >= 4) {
+              rows.push({
+                index: parseInt(cols[0], 10) || rows.length + 1,
+                name: cols[1] || 'غير متوفر',
+                txNumber: cols[2] || '',
+                amount: cols[3] || '0'
+              });
+            }
+          } else if (trimmed.includes('الإجمالي:') || trimmed.includes('المجموع:')) {
+            const match = trimmed.match(/الإجمالي:?\s*\*?([0-9,]+(?:\.\d+)?)\s*(?:SDG)?/i);
+            if (match) totalAmount = match[1] + ' SDG';
+          } else if (trimmed.includes('عدد الإشعارات:')) {
+            const match = trimmed.match(/عدد الإشعارات:?\s*\*?(\d+)/);
+            if (match) totalCount = parseInt(match[1], 10);
+          } else if (trimmed.includes('إشعارات مكررة')) {
+            const match = trimmed.match(/إشعارات مكررة.*?(\d+)/);
+            if (match) duplicateCount = parseInt(match[1], 10);
+          } else if (trimmed.includes('تحتاج مراجعة')) {
+            const match = trimmed.match(/تحتاج مراجعة.*?(\d+)/);
+            if (match) reviewCount = parseInt(match[1], 10);
+          }
+        }
+      }
+
+      if (totalCount === 0) totalCount = rows.length;
+
+      return (
+        <div className="space-y-3 py-1 max-w-full">
+          {/* Header matching image: حساب إشعارات الدفعة / عدد الإشعارات */}
+          <div className="text-right border-b border-emerald-200/60 pb-2">
+            <div className="text-sm font-black text-slate-950 flex items-center space-x-1.5 space-x-reverse">
+              <span className="text-emerald-700">📋</span>
+              <span>حساب إشعارات الدفعة</span>
+            </div>
+            <div className="text-[11px] font-bold text-slate-600 mt-0.5">
+              عدد الإشعارات: <span className="font-black text-slate-900">{totalCount}</span>
+            </div>
+          </div>
+
+          {/* Structured Table with Green Header */}
+          {rows.length > 0 ? (
+            <div className="overflow-x-auto rounded-xl border border-slate-300 shadow-xs bg-white">
+              <table className="w-full text-right text-xs border-collapse">
+                <thead>
+                  <tr className="bg-[#10593b] text-white font-black text-[11px]">
+                    <th className="p-2.5 text-center w-8">#</th>
+                    <th className="p-2.5 text-right min-w-[120px]">الاسم</th>
+                    <th className="p-2.5 text-center min-w-[90px]">رقم الإشعار</th>
+                    <th className="p-2.5 text-left min-w-[90px]">المبلغ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, i) => (
+                    <tr
+                      key={i}
+                      className={`border-b border-slate-100 hover:bg-emerald-50/50 transition-colors ${
+                        i % 2 === 1 ? 'bg-slate-50/60' : 'bg-white'
+                      }`}
+                    >
+                      <td className="p-2 text-center text-slate-500 font-bold text-[11px]">{r.index}</td>
+                      <td className="p-2 font-bold text-slate-900 truncate max-w-[140px]" title={r.name}>{r.name}</td>
+                      <td className="p-2 text-center font-mono font-bold text-slate-700 text-[11px] dir-ltr">{r.txNumber}</td>
+                      <td className="p-2 text-left font-black text-slate-950 font-mono text-xs">
+                        {typeof r.amount === 'number' ? r.amount.toLocaleString('en-US') : r.amount}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-emerald-100/70 border-t-2 border-emerald-600 font-black text-slate-950">
+                    <td colSpan={3} className="p-2.5 text-right font-black text-emerald-950 text-xs">المجموع</td>
+                    <td className="p-2.5 text-left font-black text-emerald-900 text-xs sm:text-sm font-mono whitespace-nowrap">
+                      {totalAmount || '0 SDG'}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          ) : (
+            <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 text-xs text-amber-950 font-bold">
+              ⚠️ تنبيه: لم يتم تسجيل أي إشعارات جديدة في هذه الدفعة (كافة الإشعارات محجوبة أو مكررة).
+            </div>
+          )}
+
+          {/* Warning Notes for Duplicates / Review */}
+          {(duplicateCount > 0 || reviewCount > 0 || failedCount > 0) && (
+            <div className="bg-amber-50/90 border border-amber-300 rounded-xl p-2.5 space-y-1 text-[11px] font-bold text-amber-950">
+              <div className="font-black text-amber-900 flex items-center space-x-1 space-x-reverse">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                <span>ملاحظات الدفعة:</span>
+              </div>
+              {duplicateCount > 0 && (
+                <div className="flex items-center space-x-1 space-x-reverse text-amber-900 pr-4">
+                  <span>▫️ إشعارات مكررة (تم حجبها):</span>
+                  <span className="font-black underline">{duplicateCount}</span>
+                </div>
+              )}
+              {reviewCount > 0 && (
+                <div className="flex items-center space-x-1 space-x-reverse text-amber-900 pr-4">
+                  <span>▫️ إشعارات تحتاج مراجعة:</span>
+                  <span className="font-black">{reviewCount}</span>
+                </div>
+              )}
+              {failedCount > 0 && (
+                <div className="flex items-center space-x-1 space-x-reverse text-rose-900 pr-4">
+                  <span>▫️ إشعارات تعذر استخراجها:</span>
+                  <span className="font-black">{failedCount}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Copy Plain Text WhatsApp message button */}
+          <div className="flex justify-end pt-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(m.text);
+                alert('تم نسخ كشف الدفعة بنص واتساب!');
+              }}
+              className="text-[10px] font-bold text-emerald-800 hover:text-emerald-950 bg-white hover:bg-emerald-50 border border-emerald-300 rounded-md px-2 py-0.5 flex items-center space-x-1 space-x-reverse transition-colors cursor-pointer"
+              title="نسخ جدول الدفعة بصيغة نص واتساب"
+            >
+              <span>📋</span>
+              <span>نسخ نص الجدول</span>
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // 3. Default text message
+    return (
+      <div className="whitespace-pre-line leading-relaxed font-semibold">
+        {m.text}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-4">
       {/* Simulation Banner Notice */}
@@ -499,9 +696,7 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
                     )}
 
                     {/* Message Body */}
-                    <div className="whitespace-pre-line leading-relaxed font-semibold">
-                      {m.text}
-                    </div>
+                    {renderMessageContent(m)}
 
                     {/* Metadata & Timestamp */}
                     <div className="flex items-center justify-end space-x-1 space-x-reverse mt-1 text-[10px] font-bold text-slate-500">

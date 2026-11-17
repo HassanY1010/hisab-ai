@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../services/db';
 import { WhatsAppBotService } from '../services/whatsapp-bot-service';
+import { WhatsAppResponseFormatter } from '../services/whatsapp-response-formatter';
 import { NotificationQueueService } from '../services/notification-queue-service';
 import { upload } from '../middlewares/upload';
 
@@ -95,6 +96,26 @@ whatsappRouter.post('/conversations/:id/batch-messages', upload.array('images', 
         status: 'PROCESSING',
         totalJobs: files.length
       }
+    });
+
+    // Create initial temporary progress message in chat
+    const progressMessage = await prisma.chatMessage.create({
+      data: {
+        conversationId,
+        sender: 'BOT',
+        text: WhatsAppResponseFormatter.formatBatchProgress(0, files.length),
+        metadata: JSON.stringify({
+          type: 'BATCH_PROGRESS',
+          batchId: batch.id,
+          total: files.length,
+          completed: 0
+        })
+      }
+    });
+
+    await prisma.notificationBatch.update({
+      where: { id: batch.id },
+      data: { summaryMessageId: progressMessage.id }
     });
 
     const jobs: any[] = [];

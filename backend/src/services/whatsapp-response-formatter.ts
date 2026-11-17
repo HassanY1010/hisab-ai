@@ -46,6 +46,24 @@ export interface WhatsAppBatchSummaryParams {
   overallTotalCount: number;
 }
 
+export interface BatchTableRow {
+  index: number;
+  name: string;
+  txNumber: string;
+  amount: number;
+}
+
+export interface BatchReceiptsTableParams {
+  batchId?: string;
+  title?: string;
+  totalReceived: number;
+  rows: BatchTableRow[];
+  totalAmount: number;
+  duplicateCount?: number;
+  reviewCount?: number;
+  failedCount?: number;
+}
+
 export class WhatsAppResponseFormatter {
   /**
    * Masks a bank account to show only the last 4 digits for privacy and compliance:
@@ -263,5 +281,64 @@ export class WhatsAppResponseFormatter {
    */
   public static formatQueueAcknowledgment(count: number, batchId: string): string {
     return `📥 *تم استلام ${count} إشعار بنكي وجاري المعالجة الخلفية...*\n▫️ رقم الدفعة: \`${batchId.slice(-8)}\`\n▫️ سيتم تسجيل كل عملية وعرض النتائج والملخص تباعاً دون تعطيل المحادثة.`;
+  }
+
+  /**
+   * Temporary Batch Progress Message shown during reception and processing
+   */
+  public static formatBatchProgress(completed: number, total: number): string {
+    return [
+      '⏳ *جاري استقبال ومعالجة الإشعارات...*',
+      `▫️ تمت معالجة: *${completed} من ${total}*`,
+      '⚡ يتم استخراج البيانات والتحقق من التكرار آلياً...'
+    ].join('\n');
+  }
+
+  /**
+   * Official Batch Summary Table matching reference image layout:
+   * Header: حساب إشعارات الدفعة / عدد الإشعارات
+   * Columns: # | الاسم | رقم الإشعار | المبلغ
+   * Footer: الإجمالي
+   */
+  public static formatBatchReceiptsTable(params: BatchReceiptsTableParams): string {
+    const lines: string[] = [];
+    const title = params.title || 'حساب إشعارات الدفعة';
+
+    lines.push(`📋 *${title}*`);
+    lines.push(`▫️ عدد الإشعارات: *${params.totalReceived}*`);
+    lines.push('');
+
+    if (params.rows.length > 0) {
+      lines.push('| # | الاسم | رقم الإشعار | المبلغ |');
+      lines.push('|---|---|---|---:|');
+      for (const row of params.rows) {
+        const cleanName = (row.name && row.name.trim().length > 0) ? row.name.trim() : 'غير متوفر';
+        lines.push(`| ${row.index} | ${cleanName} | ${row.txNumber} | ${row.amount.toLocaleString('en-US')} |`);
+      }
+      lines.push('');
+      lines.push(`*الإجمالي: ${params.totalAmount.toLocaleString('en-US')} SDG*`);
+    } else {
+      lines.push('⚠️ *تنبيه: لم يتم تسجيل أي إشعارات جديدة في هذه الدفعة.*');
+      lines.push('*الإجمالي: 0 SDG*');
+    }
+
+    const notes: string[] = [];
+    if (params.duplicateCount && params.duplicateCount > 0) {
+      notes.push(`▫️ إشعارات مكررة (تم حجبها): *${params.duplicateCount}*`);
+    }
+    if (params.reviewCount && params.reviewCount > 0) {
+      notes.push(`▫️ إشعارات تحتاج مراجعة: *${params.reviewCount}*`);
+    }
+    if (params.failedCount && params.failedCount > 0) {
+      notes.push(`▫️ إشعارات تعذر استخراجها: *${params.failedCount}*`);
+    }
+
+    if (notes.length > 0) {
+      lines.push('');
+      lines.push('⚠️ *ملاحظات الدفعة:*');
+      lines.push(...notes);
+    }
+
+    return lines.join('\n');
   }
 }

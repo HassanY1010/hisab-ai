@@ -2,7 +2,7 @@ import { prisma, withDbRetry } from './db';
 import { TransactionService } from './transaction-service';
 import { TesseractOcrAdapter } from './ocr/tesseract-adapter';
 import { SupabaseStorageService } from './storage/supabase-storage';
-import { WhatsAppResponseFormatter } from './whatsapp-response-formatter';
+import { WhatsAppResponseFormatter, BatchTableRow } from './whatsapp-response-formatter';
 import { ReceiptDateParser } from './ocr/receipt-date-parser';
 import fs from 'fs';
 import path from 'path';
@@ -113,6 +113,34 @@ export class NotificationQueueService {
 
     const batchId = input.batchId || (await this.getOrCreateActiveBatch(input.conversationId, input.direction));
 
+    // Ensure initial progress message exists if this batch has or will have multiple jobs
+    try {
+      const b = await prisma.notificationBatch.findUnique({
+        where: { id: batchId },
+        select: { id: true, totalJobs: true, summaryMessageId: true, conversationId: true, _count: { select: { jobs: true } } }
+      });
+      if (b && (b.totalJobs > 1 || b._count.jobs > 0) && !b.summaryMessageId) {
+        const total = Math.max(b.totalJobs, b._count.jobs + 1);
+        const progMsg = await prisma.chatMessage.create({
+          data: {
+            conversationId: b.conversationId,
+            sender: 'BOT',
+            text: WhatsAppResponseFormatter.formatBatchProgress(0, total),
+            metadata: JSON.stringify({
+              type: 'BATCH_PROGRESS',
+              batchId: b.id,
+              total,
+              completed: 0
+            })
+          }
+        });
+        await prisma.notificationBatch.update({
+          where: { id: b.id },
+          data: { summaryMessageId: progMsg.id }
+        });
+      }
+    } catch {}
+
     // Create persistent job record in PostgreSQL
     const job = await withDbRetry(() => prisma.imageProcessingJob.create({
       data: {
@@ -181,6 +209,18 @@ export class NotificationQueueService {
       if (!job) return;
       currentJob = job;
 
+      // Determine if job belongs to a bulk batch (more than 1 job in batch)
+      let isBulkBatch = false;
+      if (job.batchId) {
+        const batchInfo = await prisma.notificationBatch.findUnique({
+          where: { id: job.batchId },
+          select: { totalJobs: true, _count: { select: { jobs: true } } }
+        });
+        if (batchInfo && (batchInfo.totalJobs > 1 || batchInfo._count.jobs > 1)) {
+          isBulkBatch = true;
+        }
+      }
+
       let mediaUrl = job.imagePath;
       let storageKey = job.storageKey || undefined;
       // 2. Upload to Supabase Storage if local file and not yet stored
@@ -230,28 +270,28 @@ export class NotificationQueueService {
 
       if (!hasMinimalText || parsed.status === 'FAILED') {
         // Needs review / extraction failed
+        let botMsgId: string | undefined = undefined;
+        if (!isBulkBatch) {
+          const replyText = WhatsAppResponseFormatter.formatExtractionFailed();
+          const botMsg = await prisma.chatMessage.create({
+            data: {
+              conversationId: job.conversationId,
+              sender: 'BOT',
+              text: replyText
+            }
+          });
+          botMsgId = botMsg.id;
+        }
+
         await prisma.imageProcessingJob.update({
           where: { id: jobId },
           data: {
             status: 'NEEDS_REVIEW',
             extractedText: parsed.rawText || '',
             errorMessage: 'تعذر استخراج نصوص كافية من صورة الإشعار',
+            botMessageId: botMsgId,
             completedAt: new Date()
           }
-        });
-
-        const replyText = WhatsAppResponseFormatter.formatExtractionFailed();
-        const botMsg = await prisma.chatMessage.create({
-          data: {
-            conversationId: job.conversationId,
-            sender: 'BOT',
-            text: replyText
-          }
-        });
-
-        await prisma.imageProcessingJob.update({
-          where: { id: jobId },
-          data: { botMessageId: botMsg.id }
         });
 
         await this.handleBatchProgress(job.batchId);
@@ -260,6 +300,26 @@ export class NotificationQueueService {
 
       if (!parsed.normalizedTxNumber || parsed.amount === null || parsed.amount <= 0) {
         // Incomplete extracted data
+        let botMsgId: string | undefined = undefined;
+        if (!isBulkBatch) {
+          const replyText = WhatsAppResponseFormatter.formatIncompleteData({
+            transactionNumber: parsed.normalizedTxNumber,
+            amount: parsed.amount,
+            dateStr: parsed.formattedDate,
+            timeStr: parsed.formattedTime,
+            reason: !parsed.normalizedTxNumber ? 'تعذر استخراج رقم العملية بدقة' : 'تعذر استخراج المبلغ المالي'
+          });
+
+          const botMsg = await prisma.chatMessage.create({
+            data: {
+              conversationId: job.conversationId,
+              sender: 'BOT',
+              text: replyText
+            }
+          });
+          botMsgId = botMsg.id;
+        }
+
         await prisma.imageProcessingJob.update({
           where: { id: jobId },
           data: {
@@ -268,29 +328,9 @@ export class NotificationQueueService {
             extractedTxNumber: parsed.normalizedTxNumber || undefined,
             extractedAmount: parsed.amount || undefined,
             errorMessage: !parsed.normalizedTxNumber ? 'تعذر استخراج رقم العملية' : 'تعذر استخراج المبلغ المالي',
+            botMessageId: botMsgId,
             completedAt: new Date()
           }
-        });
-
-        const replyText = WhatsAppResponseFormatter.formatIncompleteData({
-          transactionNumber: parsed.normalizedTxNumber,
-          amount: parsed.amount,
-          dateStr: parsed.formattedDate,
-          timeStr: parsed.formattedTime,
-          reason: !parsed.normalizedTxNumber ? 'تعذر استخراج رقم العملية بدقة' : 'تعذر استخراج المبلغ المالي'
-        });
-
-        const botMsg = await prisma.chatMessage.create({
-          data: {
-            conversationId: job.conversationId,
-            sender: 'BOT',
-            text: replyText
-          }
-        });
-
-        await prisma.imageProcessingJob.update({
-          where: { id: jobId },
-          data: { botMessageId: botMsg.id }
         });
 
         await this.handleBatchProgress(job.batchId);
@@ -327,45 +367,21 @@ export class NotificationQueueService {
           ? ReceiptDateParser.formatDateStr(new Date(orig.transactionDate).getUTCFullYear(), new Date(orig.transactionDate).getUTCMonth() + 1, new Date(orig.transactionDate).getUTCDate())
           : parsed.formattedDate;
 
-        botReplyText = WhatsAppResponseFormatter.formatDuplicate({
-          transactionNumber: parsed.normalizedTxNumber,
-          amount: parsed.amount,
-          dateStr: origDate || parsed.formattedDate,
-          originalAmount: origAmount,
-          amountMismatch: isMismatch
-        });
+        if (!isBulkBatch) {
+          botReplyText = WhatsAppResponseFormatter.formatDuplicate({
+            transactionNumber: parsed.normalizedTxNumber,
+            amount: parsed.amount,
+            dateStr: origDate || parsed.formattedDate,
+            originalAmount: origAmount,
+            amountMismatch: isMismatch
+          });
+        }
         linkedTxId = orig?.id;
       } else if (regResult.status === 'SUCCESS') {
         finalJobStatus = 'REGISTERED';
         linkedTxId = regResult.transaction?.id;
 
-        // Check if this notification belongs to a bulk batch
-        let isBulkBatch = false;
-        if (job.batchId) {
-          const batchInfo = await prisma.notificationBatch.findUnique({
-            where: { id: job.batchId },
-            select: { totalJobs: true, _count: { select: { jobs: true } } }
-          });
-          if (batchInfo && (batchInfo.totalJobs > 1 || batchInfo._count.jobs > 1)) {
-            isBulkBatch = true;
-          }
-        }
-
-        if (isBulkBatch) {
-          // Bulk Mode: Send receipt confirmation with verified details,
-          // without displaying out-of-order running totals while parallel workers are executing.
-          // Accurate final financial totals are delivered in the final batch summary.
-          botReplyText = WhatsAppResponseFormatter.formatSuccess({
-            transactionNumber: parsed.normalizedTxNumber,
-            amount: parsed.amount,
-            direction: job.direction as 'INWARD' | 'OUTWARD',
-            dateStr: parsed.formattedDate,
-            timeStr: parsed.formattedTime,
-            beneficiaryName: parsed.beneficiaryName,
-            receiverAccount: parsed.receiverAccount,
-            senderAccount: parsed.senderAccount
-          });
-        } else {
+        if (!isBulkBatch) {
           // Single Mode: Fetch real-time financial stats and include running totals
           const stats = await TransactionService.getFinancialStats();
           botReplyText = WhatsAppResponseFormatter.formatSuccess({
@@ -387,18 +403,24 @@ export class NotificationQueueService {
         }
       } else {
         finalJobStatus = 'FAILED';
-        botReplyText = WhatsAppResponseFormatter.formatFailure();
+        if (!isBulkBatch) {
+          botReplyText = WhatsAppResponseFormatter.formatFailure();
+        }
       }
 
-      // 5. Post Bot Response to Chat
-      const botMsg = await prisma.chatMessage.create({
-        data: {
-          conversationId: job.conversationId,
-          sender: 'BOT',
-          text: botReplyText,
-          transactionId: linkedTxId
-        }
-      });
+      // 5. Post Bot Response to Chat ONLY in Single Mode
+      let botMsgId: string | undefined = undefined;
+      if (!isBulkBatch && botReplyText) {
+        const botMsg = await prisma.chatMessage.create({
+          data: {
+            conversationId: job.conversationId,
+            sender: 'BOT',
+            text: botReplyText,
+            transactionId: linkedTxId
+          }
+        });
+        botMsgId = botMsg.id;
+      }
 
       // 6. Finalize Job Status
       await prisma.imageProcessingJob.update({
@@ -409,7 +431,7 @@ export class NotificationQueueService {
           extractedTxNumber: parsed.normalizedTxNumber,
           extractedAmount: parsed.amount,
           transactionId: linkedTxId,
-          botMessageId: botMsg.id,
+          botMessageId: botMsgId,
           completedAt: new Date()
         }
       });
@@ -486,6 +508,34 @@ export class NotificationQueueService {
   private static async handleBatchProgress(batchId?: string | null) {
     if (!batchId) return;
 
+    // Update live progress message in chat if batch is active
+    try {
+      const batch = await withDbRetry(() => prisma.notificationBatch.findUnique({
+        where: { id: batchId },
+        include: { jobs: true }
+      }));
+
+      if (batch && !batch.summarySent) {
+        const completedCount = batch.jobs.filter(j => j.status !== 'QUEUED' && j.status !== 'PROCESSING').length;
+        const total = Math.max(batch.totalJobs, batch.jobs.length);
+
+        if (batch.summaryMessageId) {
+          await withDbRetry(() => prisma.chatMessage.update({
+            where: { id: batch.summaryMessageId! },
+            data: {
+              text: WhatsAppResponseFormatter.formatBatchProgress(completedCount, total),
+              metadata: JSON.stringify({
+                type: 'BATCH_PROGRESS',
+                batchId: batch.id,
+                total,
+                completed: completedCount
+              })
+            }
+          })).catch(() => {});
+        }
+      }
+    } catch {}
+
     // Clear existing debounce timer if any
     const existingTimer = this.batchDebounceTimers.get(batchId);
     if (existingTimer) {
@@ -493,37 +543,38 @@ export class NotificationQueueService {
       this.batchDebounceTimers.delete(batchId);
     }
 
-    // Set debounce timer (2.5 seconds). If no new jobs start in this batch, complete and emit summary!
+    // Set debounce timer (1.5 seconds). If no new jobs start in this batch, complete and emit summary!
     const timer = setTimeout(async () => {
       try {
         await this.finalizeBatchSummary(batchId);
       } catch (err: any) {
         console.error(`[Queue] Failed to finalize batch summary for ${batchId}:`, err);
         // Reset status to PROCESSING so it can be retried
-        await prisma.notificationBatch.updateMany({
+        await withDbRetry(() => prisma.notificationBatch.updateMany({
           where: { id: batchId, status: 'FINALIZING' },
           data: { status: 'PROCESSING' }
-        }).catch(() => {});
+        })).catch(() => {});
       } finally {
         this.batchDebounceTimers.delete(batchId);
       }
-    }, 2500);
+    }, 1500);
 
     this.batchDebounceTimers.set(batchId, timer);
   }
 
   /**
-   * Computes actual database statistics for the batch and sends the official WhatsApp Batch Summary
+   * Computes actual database statistics for the batch and sends the official WhatsApp Batch Summary Table
    */
   private static async finalizeBatchSummary(batchId: string) {
-    const batch = await prisma.notificationBatch.findUnique({
+    const batch = await withDbRetry(() => prisma.notificationBatch.findUnique({
       where: { id: batchId },
       include: {
         jobs: {
-          include: { transaction: true }
+          include: { transaction: true },
+          orderBy: { receivedAt: 'asc' }
         }
       }
-    });
+    }));
 
     if (!batch || batch.summarySent || batch.jobs.length === 0) return;
 
@@ -535,91 +586,120 @@ export class NotificationQueueService {
     }
 
     // Atomic lock: transition status to FINALIZING so only one worker ever builds and sends the summary
-    const claimed = await prisma.notificationBatch.updateMany({
+    const claimed = await withDbRetry(() => prisma.notificationBatch.updateMany({
       where: { id: batchId, status: 'PROCESSING', summarySent: false },
       data: { status: 'FINALIZING' }
-    });
+    }));
     if (claimed.count === 0) return;
 
     // Only emit batch summary if batch had 2 or more receipts (or if single multi-upload batch)
     if (batch.jobs.length < 2) {
       // Single notification already has its own comprehensive success response
-      await prisma.notificationBatch.update({
+      await withDbRetry(() => prisma.notificationBatch.update({
         where: { id: batchId },
         data: { status: 'COMPLETED', completedAt: new Date() }
-      });
+      }));
       return;
     }
 
     // Calculate real database numbers
     const totalReceived = batch.jobs.length;
     const registeredJobs = batch.jobs.filter(j => j.status === 'REGISTERED');
-    const registeredCount = registeredJobs.length;
     const duplicateCount = batch.jobs.filter(j => j.status === 'DUPLICATE').length;
     const reviewCount = batch.jobs.filter(j => j.status === 'NEEDS_REVIEW').length;
     const failedCount = batch.jobs.filter(j => j.status === 'FAILED').length;
 
-    // Sum actual database transaction amounts for this batch
-    let batchTotalInward = 0;
-    let batchTotalOutward = 0;
+    let totalAmount = 0;
+    const tableRows: BatchTableRow[] = [];
 
-    for (const job of registeredJobs) {
+    for (let i = 0; i < registeredJobs.length; i++) {
+      const job = registeredJobs[i];
       if (job.transaction) {
         const amt = Number(job.transaction.amount);
-        if (job.transaction.direction === 'INWARD') {
-          batchTotalInward += amt;
-        } else if (job.transaction.direction === 'OUTWARD') {
-          batchTotalOutward += amt;
-        }
+        totalAmount += amt;
+        const name = (job.transaction.beneficiaryName && job.transaction.beneficiaryName.trim().length > 1)
+          ? job.transaction.beneficiaryName.trim()
+          : 'غير متوفر';
+
+        tableRows.push({
+          index: i + 1,
+          name,
+          txNumber: job.transaction.transactionNumber,
+          amount: amt
+        });
       }
     }
-    const batchNetBalance = batchTotalInward - batchTotalOutward;
 
-    // Get live overall financial stats across the entire database
-    const overallStats = await TransactionService.getFinancialStats();
-
-    // Format the official Batch Summary
-    const summaryText = WhatsAppResponseFormatter.formatBatchSummary({
+    // Format the official Batch Summary Table matching reference image layout
+    const summaryText = WhatsAppResponseFormatter.formatBatchReceiptsTable({
+      batchId: batch.id,
       totalReceived,
-      registeredCount,
+      rows: tableRows,
+      totalAmount,
       duplicateCount,
       reviewCount,
-      failedCount,
-      batchTotalInward,
-      batchTotalOutward,
-      batchNetBalance,
-      overallTotalInward: overallStats.totalInward,
-      overallTotalOutward: overallStats.totalOutward,
-      overallNetBalance: overallStats.netBalance,
-      overallTotalCount: overallStats.totalTransactions
+      failedCount
     });
 
-    // Post to Chat
-    const summaryMsg = await prisma.chatMessage.create({
-      data: {
-        conversationId: batch.conversationId,
-        sender: 'BOT',
-        text: summaryText
-      }
-    });
+    let summaryMsgId = batch.summaryMessageId;
+    if (summaryMsgId) {
+      // Transform progress message in place into official batch table summary
+      await withDbRetry(() => prisma.chatMessage.update({
+        where: { id: summaryMsgId! },
+        data: {
+          text: summaryText,
+          metadata: JSON.stringify({
+            type: 'BATCH_TABLE_SUMMARY',
+            batchId: batch.id,
+            totalReceived,
+            registeredCount: tableRows.length,
+            totalAmount,
+            duplicateCount,
+            reviewCount,
+            failedCount,
+            rows: tableRows
+          })
+        }
+      }));
+    } else {
+      const summaryMsg = await withDbRetry(() => prisma.chatMessage.create({
+        data: {
+          conversationId: batch.conversationId,
+          sender: 'BOT',
+          text: summaryText,
+          metadata: JSON.stringify({
+            type: 'BATCH_TABLE_SUMMARY',
+            batchId: batch.id,
+            totalReceived,
+            registeredCount: tableRows.length,
+            totalAmount,
+            duplicateCount,
+            reviewCount,
+            failedCount,
+            rows: tableRows
+          })
+        }
+      }));
+      summaryMsgId = summaryMsg.id;
+    }
 
     // Mark Batch as COMPLETED
-    await prisma.notificationBatch.update({
+    await withDbRetry(() => prisma.notificationBatch.update({
       where: { id: batchId },
       data: {
         status: 'COMPLETED',
-        registeredCount,
+        registeredCount: tableRows.length,
         duplicateCount,
         reviewCount,
         failedCount,
-        totalAmount: batchTotalInward + batchTotalOutward,
+        totalAmount,
         summarySent: true,
-        summaryMessageId: summaryMsg.id,
+        summaryMessageId: summaryMsgId,
         completedAt: new Date()
       }
-    });
+    }));
 
-    console.log(`[Queue] Successfully generated and sent batch summary for batch=${batchId} (${registeredCount} registered, ${duplicateCount} duplicates).`);
+    console.log(`[Queue] Successfully generated and sent batch table summary for batch=${batchId} (${tableRows.length} registered, ${totalAmount.toLocaleString()} SDG, ${duplicateCount} duplicates).`);
   }
 
   /**
