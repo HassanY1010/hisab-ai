@@ -50,11 +50,11 @@ export class TesseractOcrAdapter implements IOcrEngine {
     }
   }
 
-  public async extractText(imagePath: string): Promise<{ text: string; confidence: number; preprocessedImagePath: string }> {
+  public async extractText(imagePath: string, options?: any): Promise<{ text: string; confidence: number; preprocessedImagePath: string }> {
     const preprocessedPath = await ImagePreprocessor.preprocess(imagePath);
     try {
       const scheduler = await this.getScheduler();
-      const result: any = await scheduler.addJob('recognize', preprocessedPath);
+      const result: any = await scheduler.addJob('recognize', preprocessedPath, options);
 
       return {
         text: result.data.text,
@@ -76,6 +76,24 @@ export class TesseractOcrAdapter implements IOcrEngine {
   public async parseReceipt(imagePath: string): Promise<ParsedBankakReceipt> {
     const { text, confidence, preprocessedImagePath } = await this.extractText(imagePath);
     const parsed = BankakReceiptParser.parse(text, this.name, this.version);
+
+    // If beneficiary name was missed in standard segmentation (e.g. table borders masking the name line),
+    // perform a targeted sparse segmentation pass (PSM 11) to extract the name without degrading numbers/amounts.
+    if (!parsed.beneficiaryName) {
+      try {
+        const sparseRes = await this.extractText(imagePath, { tessedit_pageseg_mode: '11' });
+        if (sparseRes.text) {
+          const sparseParsed = BankakReceiptParser.parse(sparseRes.text, this.name, this.version);
+          if (sparseParsed.beneficiaryName) {
+            parsed.beneficiaryName = sparseParsed.beneficiaryName;
+            parsed.rawText = (parsed.rawText || '') + '\n' + sparseRes.text;
+          }
+        }
+      } catch {
+        // Fallback gracefully to original parsed receipt
+      }
+    }
+
     // If tesseract internal confidence is available, blend it
     if (parsed.status === 'SUCCESS' && confidence > 0) {
       parsed.confidence = Math.min(0.99, Number((confidence / 100).toFixed(2)));
