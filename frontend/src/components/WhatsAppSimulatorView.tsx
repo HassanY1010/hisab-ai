@@ -378,7 +378,7 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
                 <thead>
                   <tr className="bg-[#10593b] text-white font-black text-[11px]">
                     <th className="p-2.5 text-center w-8">#</th>
-                    <th className="p-2.5 text-right min-w-[120px]">الاسم</th>
+                    <th className="p-2.5 text-right min-w-[160px]">الاسم</th>
                     <th className="p-2.5 text-center min-w-[90px]">رقم الإشعار</th>
                     <th className="p-2.5 text-left min-w-[90px]">المبلغ</th>
                   </tr>
@@ -392,7 +392,7 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
                       }`}
                     >
                       <td className="p-2 text-center text-slate-500 font-bold text-[11px]">{r.index}</td>
-                      <td className="p-2 font-bold text-slate-900 truncate max-w-[140px]" title={r.name}>{r.name}</td>
+                      <td className="p-2 font-bold text-slate-900 whitespace-nowrap text-xs" title={r.name}>{r.name}</td>
                       <td className="p-2 text-center font-mono font-bold text-slate-700 text-[11px] dir-ltr">{r.txNumber}</td>
                       <td className="p-2 text-left font-black text-slate-950 font-mono text-xs">
                         {typeof r.amount === 'number' ? r.amount.toLocaleString('en-US') : r.amount}

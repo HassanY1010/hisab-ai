@@ -77,21 +77,19 @@ export class TesseractOcrAdapter implements IOcrEngine {
     const { text, confidence, preprocessedImagePath } = await this.extractText(imagePath);
     const parsed = BankakReceiptParser.parse(text, this.name, this.version);
 
-    // If beneficiary name was missed in standard segmentation (e.g. table borders masking the name line),
-    // perform a targeted sparse segmentation pass (PSM 11) to extract the name without degrading numbers/amounts.
-    if (!parsed.beneficiaryName) {
-      try {
-        const sparseRes = await this.extractText(imagePath, { tessedit_pageseg_mode: '11' });
-        if (sparseRes.text) {
-          const sparseParsed = BankakReceiptParser.parse(sparseRes.text, this.name, this.version);
-          if (sparseParsed.beneficiaryName) {
-            parsed.beneficiaryName = sparseParsed.beneficiaryName;
-            parsed.rawText = (parsed.rawText || '') + '\n' + sparseRes.text;
-          }
+    // Extract beneficiary name with sparse segmentation pass (PSM 11)
+    // PSM 11 isolates the name row from table lines, preventing OCR noise (such as 'بج الحو') and guaranteeing clean complete 4-part names.
+    try {
+      const sparseRes = await this.extractText(imagePath, { tessedit_pageseg_mode: '11' });
+      if (sparseRes.text) {
+        const sparseParsed = BankakReceiptParser.parse(sparseRes.text, this.name, this.version);
+        if (sparseParsed.beneficiaryName) {
+          parsed.beneficiaryName = sparseParsed.beneficiaryName;
+          parsed.rawText = (parsed.rawText || '') + '\n' + sparseRes.text;
         }
-      } catch {
-        // Fallback gracefully to original parsed receipt
       }
+    } catch {
+      // Fallback gracefully to original parsed receipt
     }
 
     // If tesseract internal confidence is available, blend it
