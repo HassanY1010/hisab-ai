@@ -103,12 +103,13 @@ whatsappRouter.post('/conversations/:id/batch-messages', upload.array('images', 
     const baseTime = Date.now();
     const createdUserMessages = await Promise.all(
       files.map(async (file, i) => {
+        const publicUrl = `/uploads/${file.filename}`;
         const userMessage = await withDbRetry(() => prisma.chatMessage.create({
           data: {
             conversationId,
             sender: 'USER',
             text: `📷 [إشعار تحويل بنكي: ${file.originalname}]`,
-            mediaUrl: file.path,
+            mediaUrl: publicUrl,
             createdAt: new Date(baseTime + i * 20)
           }
         }));

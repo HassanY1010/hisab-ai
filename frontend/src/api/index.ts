@@ -6,7 +6,19 @@ export function getAssetUrl(pathStr?: string | null): string {
     return pathStr;
   }
   const base = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
-  const normalized = pathStr.replace(/\\/g, '/');
+  let normalized = pathStr.replace(/\\/g, '/');
+
+  // Strip server disk prefixes (e.g. /app/uploads or D:/bot/uploads) so browser loads from static route
+  const uploadsIdx = normalized.indexOf('uploads/');
+  if (uploadsIdx !== -1) {
+    normalized = normalized.substring(uploadsIdx);
+  } else {
+    const samplesIdx = normalized.indexOf('samples/');
+    if (samplesIdx !== -1) {
+      normalized = normalized.substring(samplesIdx);
+    }
+  }
+
   const cleanPath = normalized.startsWith('/') ? normalized : `/${normalized}`;
   return `${base}${cleanPath}`;
 }
