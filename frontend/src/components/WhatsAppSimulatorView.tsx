@@ -39,8 +39,17 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef<boolean>(true);
+
+  const handleMessagesScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    // User is near bottom if within 120px of the bottom
+    const distanceToBottom = scrollHeight - scrollTop - clientHeight;
+    isNearBottomRef.current = distanceToBottom < 120;
+  };
 
   const scrollToBottom = () => {
+    isNearBottomRef.current = true;
     if (messagesContainerRef.current) {
       messagesContainerRef.current.scrollTo({
         top: messagesContainerRef.current.scrollHeight,
@@ -109,7 +118,7 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
         setConversations(res.data);
         if (!activeConv) {
           setActiveConv(res.data[0]);
-          loadMessages(res.data[0].id);
+          loadMessages(res.data[0].id, true);
         }
       }
     } catch (err) {
@@ -117,14 +126,17 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
     }
   };
 
-  const loadMessages = async (convId: string) => {
+  const loadMessages = async (convId: string, forceScroll = false) => {
     try {
       const res = await api.getWhatsAppMessages(convId);
       if (res.success) {
         setMessages(res.data);
-        setTimeout(() => {
-          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-        }, 100);
+        // Only auto-scroll to bottom if user is already near bottom or forced (e.g. after sending)
+        if (forceScroll || isNearBottomRef.current) {
+          setTimeout(() => {
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+          }, 100);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -133,7 +145,7 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
 
   const handleSelectConv = (conv: any) => {
     setActiveConv(conv);
-    loadMessages(conv.id);
+    loadMessages(conv.id, true);
     setMobileTab('chat');
   };
 
@@ -147,7 +159,7 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
     try {
       const res = await api.sendWhatsAppMessage(activeConv.id, text.trim());
       if (res && res.success !== false) {
-        await loadMessages(activeConv.id);
+        await loadMessages(activeConv.id, true);
         onRefreshData();
       }
     } catch (err: any) {
@@ -192,7 +204,7 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
           setActiveBatchId(res.data.batchId);
         }
         setMobileTab('chat');
-        await loadMessages(activeConv.id);
+        await loadMessages(activeConv.id, true);
         onRefreshData();
       }
     } catch (err: any) {
@@ -227,7 +239,7 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
         const res = await api.sendWhatsAppBatchMessages(activeConv.id, filesToSend);
         if (res?.data?.batchId) setActiveBatchId(res.data.batchId);
       }
-      await loadMessages(activeConv.id);
+      await loadMessages(activeConv.id, true);
       onRefreshData();
     } catch (err: any) {
       alert(`فشل رفع الإشعارات: ${err.message}`);
@@ -540,41 +552,17 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
 
           {/* Sample Images Quick Launcher */}
           <div className="p-3 bg-white border-t border-slate-200">
-            <span className="text-[11px] font-black text-slate-900 block mb-2 flex items-center space-x-1 space-x-reverse">
-              <Sparkles className="w-3.5 h-3.5 text-teal-800 shrink-0" />
-              <span>إرسال إشعار بنكي سريع (العينات الست):</span>
-            </span>
-
             {/* Bulk Send All 6 Samples Button */}
             <button
               type="button"
               disabled={isSending}
               onClick={handleSendAllSamples}
-              className="w-full mb-2.5 p-2 rounded-xl bg-gradient-to-r from-emerald-800 to-teal-800 hover:from-emerald-900 hover:to-teal-900 text-white font-black text-xs shadow-xs flex items-center justify-center space-x-1.5 space-x-reverse transition-all cursor-pointer active:scale-98"
+              className="w-full p-2.5 rounded-xl bg-gradient-to-r from-emerald-800 to-teal-800 hover:from-emerald-900 hover:to-teal-900 text-white font-black text-xs shadow-xs flex items-center justify-center space-x-1.5 space-x-reverse transition-all cursor-pointer active:scale-98"
               title="إرسال جميع العينات الـ 6 في دفعة واحدة لاختبار المعالجة المتزامنة"
             >
-              <Sparkles className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+              <Sparkles className="w-4 h-4 text-emerald-300 shrink-0" />
               <span>{isSending ? 'جاري إرسال الدفعة...' : '🚀 إرسال كل العينات الـ 6 دفعة واحدة'}</span>
             </button>
-
-            <div className="grid grid-cols-2 gap-1.5 max-h-36 overflow-y-auto">
-              {samples.map((s, idx) => {
-                const label = sampleAmounts[s.filename] || `صورة ${idx + 1}`;
-                return (
-                  <button
-                    key={s.filename}
-                    onClick={() => {
-                      handleSendSampleImage(s.filename);
-                      setMobileTab('chat');
-                    }}
-                    className="text-right text-[11px] p-2 rounded-xl border border-slate-300 hover:border-emerald-600 hover:bg-emerald-50 active:bg-emerald-100 transition-all font-bold text-slate-900 truncate shadow-2xs cursor-pointer"
-                    title={`إرسال سريع: ${label}`}
-                  >
-                    📄 {label}
-                  </button>
-                );
-              })}
-            </div>
           </div>
         </div>
 
@@ -663,6 +651,7 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
           {/* Messages Scroll Area */}
           <div
             ref={messagesContainerRef}
+            onScroll={handleMessagesScroll}
             className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 space-y-3"
             style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
           >
