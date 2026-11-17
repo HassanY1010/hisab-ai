@@ -152,14 +152,22 @@ export class BankakReceiptParser {
 
     const isNonName = (val: string) => {
       const v = val.trim().toLowerCase();
-      return (
+      if (
         v.length <= 2 ||
         /^\d+$/.test(v) ||
         /^(n\/?a|لا\s*يوجد|غير\s*متوفر|null|undefined)$/i.test(v) ||
         /^(إ?ليه|اليه|له)$/i.test(v) ||
         /^(تحويل|تحويلات|رقم|العملية|التاريخ|الزمن|من|الى|إلى|حساب|المبلغ|التعليق|الموبايل|إضافة|اضافة|مستفيد|بنك|الخرطوم|مشاركة|طباعة|تحميل|موافق)/i.test(v) ||
         /(مرة\s*اخرى|اضافة\s*مستفيد|إضافة\s*مستفيد)/i.test(v)
-      );
+      ) {
+        return true;
+      }
+      const words = v.split(/\s+/).filter(Boolean);
+      if (words.length < 2) return true;
+      if (words.includes('اسم') || words.includes('إسم') || words.includes('المرسل') || words.includes('المستفيد')) return true;
+      const avgLen = words.reduce((acc, w) => acc + w.length, 0) / words.length;
+      if (avgLen < 3.2) return true;
+      return false;
     };
 
     const cleanName = (str: string) => {
