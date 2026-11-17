@@ -20,8 +20,8 @@ export interface EnqueueJobInput {
 }
 
 export class NotificationQueueService {
-  private static ocrAdapter = new TesseractOcrAdapter();
-  private static concurrencyLimit = parseInt(process.env.NOTIFICATION_QUEUE_CONCURRENCY || '3', 10);
+  private static ocrAdapter = TesseractOcrAdapter.getInstance();
+  private static concurrencyLimit = parseInt(process.env.NOTIFICATION_QUEUE_CONCURRENCY || '2', 10);
   private static activeWorkers = 0;
   private static memoryQueue: string[] = []; // Job IDs
   private static isInitialized = false;
@@ -39,23 +39,23 @@ export class NotificationQueueService {
       console.log(`[Queue] Initializing NotificationQueueService with concurrency=${this.concurrencyLimit}...`);
 
       // 1. Recover any jobs that were stuck in 'PROCESSING' due to server crash/restart
-      const recovered = await prisma.imageProcessingJob.updateMany({
+      const recovered = await withDbRetry(() => prisma.imageProcessingJob.updateMany({
         where: { status: 'PROCESSING' },
         data: {
           status: 'QUEUED',
           errorMessage: 'تم استعادة المهمة بعد إعادة تشغيل الخادم'
         }
-      });
+      }));
       if (recovered.count > 0) {
         console.log(`[Queue] Recovered ${recovered.count} in-flight jobs after server restart.`);
       }
 
       // 2. Load all pending QUEUED jobs ordered by arrival time (FIFO)
-      const pendingJobs = await prisma.imageProcessingJob.findMany({
+      const pendingJobs = await withDbRetry(() => prisma.imageProcessingJob.findMany({
         where: { status: 'QUEUED' },
         orderBy: { receivedAt: 'asc' },
         select: { id: true }
-      });
+      }));
 
       for (const job of pendingJobs) {
         if (!this.memoryQueue.includes(job.id)) {
@@ -187,24 +187,24 @@ export class NotificationQueueService {
 
     try {
       // 1. Atomic claim: transition from 'QUEUED' to 'PROCESSING'
-      const updated = await prisma.imageProcessingJob.updateMany({
+      const updated = await withDbRetry(() => prisma.imageProcessingJob.updateMany({
         where: { id: jobId, status: 'QUEUED' },
         data: {
           status: 'PROCESSING',
           startedAt: new Date(),
           attempts: { increment: 1 }
         }
-      });
+      }));
 
       if (updated.count === 0) {
         // Job was already claimed or cancelled
         return;
       }
 
-      const job = await prisma.imageProcessingJob.findUnique({
+      const job = await withDbRetry(() => prisma.imageProcessingJob.findUnique({
         where: { id: jobId },
         include: { conversation: true }
-      });
+      }));
 
       if (!job) return;
       currentJob = job;
@@ -223,20 +223,24 @@ export class NotificationQueueService {
 
       let mediaUrl = job.imagePath;
       let storageKey = job.storageKey || undefined;
-      // 2. Upload to Supabase Storage if local file and not yet stored
+      // 2. Upload to Supabase Storage in background without blocking critical OCR processing path
       if (job.imagePath && fs.existsSync(job.imagePath) && !storageKey) {
+        const localImgPath = job.imagePath;
+        const fname = job.originalFilename || `receipt_${job.id}.jpg`;
         try {
-          const buffer = fs.readFileSync(job.imagePath);
-          const filename = job.originalFilename || `receipt_${job.id}.jpg`;
-          const uploadRes = await SupabaseStorageService.uploadReceipt(buffer, filename);
-          mediaUrl = uploadRes.url;
-          storageKey = uploadRes.storageKey;
-          await prisma.imageProcessingJob.update({
-            where: { id: jobId },
-            data: { imagePath: mediaUrl, storageKey }
-          });
-        } catch (uploadErr: any) {
-          console.warn(`[Queue] Storage upload warning for job ${jobId}:`, uploadErr.message);
+          const buffer = fs.readFileSync(localImgPath);
+          SupabaseStorageService.uploadReceipt(buffer, fname)
+            .then(async (uploadRes) => {
+              await withDbRetry(() => prisma.imageProcessingJob.update({
+                where: { id: jobId },
+                data: { storageKey: uploadRes.storageKey }
+              })).catch(() => {});
+            })
+            .catch(err => {
+              console.warn(`[Queue] Background storage upload note for job ${jobId}: ${err.message}`);
+            });
+        } catch (readErr: any) {
+          console.warn(`[Queue] Local file read warning for job ${jobId}: ${readErr.message}`);
         }
       }
 
@@ -619,7 +623,7 @@ export class NotificationQueueService {
         totalAmount += amt;
         const name = (job.transaction.beneficiaryName && job.transaction.beneficiaryName.trim().length > 1)
           ? job.transaction.beneficiaryName.trim()
-          : 'غير متوفر';
+          : '«غير متوفر»';
 
         tableRows.push({
           index: i + 1,
@@ -642,26 +646,41 @@ export class NotificationQueueService {
     });
 
     let summaryMsgId = batch.summaryMessageId;
+    let updatedExisting = false;
+
     if (summaryMsgId) {
-      // Transform progress message in place into official batch table summary
-      await withDbRetry(() => prisma.chatMessage.update({
-        where: { id: summaryMsgId! },
-        data: {
-          text: summaryText,
-          metadata: JSON.stringify({
-            type: 'BATCH_TABLE_SUMMARY',
-            batchId: batch.id,
-            totalReceived,
-            registeredCount: tableRows.length,
-            totalAmount,
-            duplicateCount,
-            reviewCount,
-            failedCount,
-            rows: tableRows
-          })
+      try {
+        // Transform progress message in place into official batch table summary,
+        // re-stamping createdAt so it remains chronologically at the bottom of the batch
+        await withDbRetry(() => prisma.chatMessage.update({
+          where: { id: summaryMsgId! },
+          data: {
+            text: summaryText,
+            createdAt: new Date(),
+            metadata: JSON.stringify({
+              type: 'BATCH_TABLE_SUMMARY',
+              batchId: batch.id,
+              totalReceived,
+              registeredCount: tableRows.length,
+              totalAmount,
+              duplicateCount,
+              reviewCount,
+              failedCount,
+              rows: tableRows
+            })
+          }
+        }));
+        updatedExisting = true;
+      } catch (err: any) {
+        if (err.code === 'P2025' || (err.message && err.message.includes('Record to update not found'))) {
+          updatedExisting = false;
+        } else {
+          throw err;
         }
-      }));
-    } else {
+      }
+    }
+
+    if (!updatedExisting) {
       const summaryMsg = await withDbRetry(() => prisma.chatMessage.create({
         data: {
           conversationId: batch.conversationId,
@@ -706,7 +725,7 @@ export class NotificationQueueService {
    * Retrieves status of a batch for live frontend polling
    */
   public static async getBatchStatus(batchId: string) {
-    const batch = await prisma.notificationBatch.findUnique({
+    const batch = await withDbRetry(() => prisma.notificationBatch.findUnique({
       where: { id: batchId },
       include: {
         jobs: {
@@ -724,7 +743,7 @@ export class NotificationQueueService {
           orderBy: { receivedAt: 'asc' }
         }
       }
-    });
+    }));
 
     if (!batch) return null;
 

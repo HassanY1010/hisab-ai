@@ -146,17 +146,43 @@ export class BankakReceiptParser {
       }
     }
 
-    // 5. Beneficiary Name extraction
+    // 5. Beneficiary / Sender / Client Name extraction
+    const nameKeywords = [
+      /.*(?:إ?سم\s*المرسل|المرسل\s*إ?ليه|لمرسل|المرسل)/i,
+      /.*(?:إ?سم\s*المستفيد|المستفيد)/i,
+      /.*(?:إ?سم\s*المحول|المحول\s*إ?ليه)/i,
+      /.*(?:إ?سم\s*العميل|إ?سم\s*الحساب)/i,
+      /.*(?:الطرف\s*(?:الآخر|المستلم))/i
+    ];
+
+    const isNonName = (val: string) => {
+      const v = val.trim().toLowerCase();
+      return (
+        v.length <= 2 ||
+        /^\d+$/.test(v) ||
+        /^(n\/?a|لا\s*يوجد|غير\s*متوفر|null|undefined)$/i.test(v) ||
+        /^(تحويلات|رقم|العملية|التاريخ|الزمن|من|الى|إلى|حساب|المبلغ|التعليق|الموبايل|إضافة|مستفيد|بنك|الخرطوم)/i.test(v)
+      );
+    };
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (/إسم\s*المرسل\s*اليه|المرسل\s*اليه|المستفيد/i.test(line)) {
-        const cleaned = line.replace(/إسم\s*المرسل\s*اليه|المرسل\s*اليه|المستفيد/i, '').replace(/[:：]/g, '').trim();
-        if (cleaned.length > 2 && !/^\d+$/.test(cleaned) && cleaned.toLowerCase() !== 'n/a') {
-          beneficiaryName = cleaned;
-        } else if (i + 1 < lines.length && !/^\d+$/.test(lines[i + 1]) && lines[i + 1].toLowerCase() !== 'n/a') {
-          beneficiaryName = lines[i + 1].trim();
+      for (const pattern of nameKeywords) {
+        if (pattern.test(line)) {
+          let cleaned = line.replace(/.*(?:إ?سم\s*المرسل|إ?سم\s*المستفيد|المرسل\s*إ?ليه|المحول\s*إ?ليه|إ?سم\s*المحول|المستفيد|إ?سم\s*العميل|الطرف\s*(?:الآخر|المستلم)|إ?سم\s*الحساب|لمرسل|المرسل)[:\s|]*/i, '').trim();
+          if (!isNonName(cleaned)) {
+            beneficiaryName = cleaned;
+            break;
+          } else if (i + 1 < lines.length) {
+            const nextCandidate = lines[i + 1].replace(/[:：]/g, '').trim();
+            if (!isNonName(nextCandidate)) {
+              beneficiaryName = nextCandidate;
+              break;
+            }
+          }
         }
       }
+      if (beneficiaryName) break;
     }
 
     const normalizedTxNumber = transactionNumber ? this.normalizeTxNumber(transactionNumber) : null;

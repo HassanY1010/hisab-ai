@@ -6,7 +6,8 @@ export function getAssetUrl(pathStr?: string | null): string {
     return pathStr;
   }
   const base = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
-  const cleanPath = pathStr.startsWith('/') ? pathStr : `/${pathStr}`;
+  const normalized = pathStr.replace(/\\/g, '/');
+  const cleanPath = normalized.startsWith('/') ? normalized : `/${normalized}`;
   return `${base}${cleanPath}`;
 }
 

@@ -1,4 +1,4 @@
-import { createWorker, Worker } from 'tesseract.js';
+import { createWorker, createScheduler, Scheduler } from 'tesseract.js';
 import path from 'path';
 import fs from 'fs';
 import { IOcrEngine, ParsedBankakReceipt } from './ocr-types';
@@ -8,14 +8,23 @@ import { BankakReceiptParser } from './bankak-receipt-parser';
 export class TesseractOcrAdapter implements IOcrEngine {
   public name = 'Tesseract.js OCR Adapter';
   public version = '5.1.0';
-  private worker: Worker | null = null;
+  private static instance: TesseractOcrAdapter | null = null;
+  private scheduler: Scheduler | null = null;
   private isInitializing = false;
+  private workerCount = 2; // Optimal 2 parallel workers on 4-thread CPU
 
-  private async getWorker(): Promise<Worker> {
-    if (this.worker) return this.worker;
+  public static getInstance(): TesseractOcrAdapter {
+    if (!TesseractOcrAdapter.instance) {
+      TesseractOcrAdapter.instance = new TesseractOcrAdapter();
+    }
+    return TesseractOcrAdapter.instance;
+  }
+
+  private async getScheduler(): Promise<Scheduler> {
+    if (this.scheduler) return this.scheduler;
     while (this.isInitializing) {
       await new Promise(resolve => setTimeout(resolve, 100));
-      if (this.worker) return this.worker;
+      if (this.scheduler) return this.scheduler;
     }
     this.isInitializing = true;
     try {
@@ -26,11 +35,16 @@ export class TesseractOcrAdapter implements IOcrEngine {
       ];
       const langPath = candidatePaths.find(p => fs.existsSync(path.join(p, 'ara.traineddata'))) || candidatePaths[0];
 
-      this.worker = await createWorker(['eng', 'ara'], 1, {
-        langPath,
-        gzip: false
-      });
-      return this.worker;
+      const sched = createScheduler();
+      for (let i = 0; i < this.workerCount; i++) {
+        const worker = await createWorker(['eng', 'ara'], 1, {
+          langPath,
+          gzip: false
+        });
+        sched.addWorker(worker);
+      }
+      this.scheduler = sched;
+      return this.scheduler;
     } finally {
       this.isInitializing = false;
     }
@@ -38,14 +52,25 @@ export class TesseractOcrAdapter implements IOcrEngine {
 
   public async extractText(imagePath: string): Promise<{ text: string; confidence: number; preprocessedImagePath: string }> {
     const preprocessedPath = await ImagePreprocessor.preprocess(imagePath);
-    const worker = await this.getWorker();
-    const result = await worker.recognize(preprocessedPath);
+    try {
+      const scheduler = await this.getScheduler();
+      const result: any = await scheduler.addJob('recognize', preprocessedPath);
 
-    return {
-      text: result.data.text,
-      confidence: result.data.confidence,
-      preprocessedImagePath: preprocessedPath
-    };
+      return {
+        text: result.data.text,
+        confidence: result.data.confidence,
+        preprocessedImagePath: preprocessedPath
+      };
+    } finally {
+      // Safely delete intermediate preprocessed image file
+      if (fs.existsSync(preprocessedPath)) {
+        try {
+          fs.unlinkSync(preprocessedPath);
+        } catch {
+          // Ignore unlink errors
+        }
+      }
+    }
   }
 
   public async parseReceipt(imagePath: string): Promise<ParsedBankakReceipt> {
@@ -59,9 +84,9 @@ export class TesseractOcrAdapter implements IOcrEngine {
   }
 
   public async terminate(): Promise<void> {
-    if (this.worker) {
-      await this.worker.terminate();
-      this.worker = null;
+    if (this.scheduler) {
+      await this.scheduler.terminate();
+      this.scheduler = null;
     }
   }
 }

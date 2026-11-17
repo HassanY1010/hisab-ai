@@ -27,10 +27,11 @@ whatsappRouter.get('/conversations', async (_req, res) => {
 
 whatsappRouter.get('/conversations/:id/messages', async (req, res) => {
   try {
+    const conversationId = String(req.params.id);
     const messages = await prisma.chatMessage.findMany({
-      where: { conversationId: req.params.id },
+      where: { conversationId },
       include: { transaction: true },
-      orderBy: { createdAt: 'asc' }
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
     });
     res.json({
       success: true,
@@ -52,7 +53,7 @@ whatsappRouter.get('/conversations/:id/messages', async (req, res) => {
  */
 whatsappRouter.post('/conversations/:id/messages', upload.single('image'), async (req, res) => {
   try {
-    const conversationId = req.params.id;
+    const conversationId = String(req.params.id);
     const text = req.body.text || '';
     const imagePath = req.file ? req.file.path : undefined;
     const originalFilename = req.file ? req.file.originalname : undefined;
@@ -76,7 +77,7 @@ whatsappRouter.post('/conversations/:id/messages', upload.single('image'), async
  */
 whatsappRouter.post('/conversations/:id/batch-messages', upload.array('images', 50), async (req, res) => {
   try {
-    const conversationId = req.params.id;
+    const conversationId = String(req.params.id);
     const files = req.files as Express.Multer.File[] | undefined;
 
     if (!files || files.length === 0) {
@@ -98,7 +99,25 @@ whatsappRouter.post('/conversations/:id/batch-messages', upload.array('images', 
       }
     });
 
-    // Create initial temporary progress message in chat
+    // 1. Create ALL user messages first so they are guaranteed to appear first in chronological order
+    const baseTime = Date.now();
+    const createdUserMessages: { file: Express.Multer.File; userMessageId: string }[] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const userMessage = await prisma.chatMessage.create({
+        data: {
+          conversationId,
+          sender: 'USER',
+          text: `📷 [إشعار تحويل بنكي: ${file.originalname}]`,
+          mediaUrl: file.path,
+          createdAt: new Date(baseTime + i * 20)
+        }
+      });
+      createdUserMessages.push({ file, userMessageId: userMessage.id });
+    }
+
+    // 2. Create the temporary progress message strictly AFTER all user messages
     const progressMessage = await prisma.chatMessage.create({
       data: {
         conversationId,
@@ -109,7 +128,8 @@ whatsappRouter.post('/conversations/:id/batch-messages', upload.array('images', 
           batchId: batch.id,
           total: files.length,
           completed: 0
-        })
+        }),
+        createdAt: new Date(baseTime + files.length * 20 + 50)
       }
     });
 
@@ -120,24 +140,15 @@ whatsappRouter.post('/conversations/:id/batch-messages', upload.array('images', 
 
     const jobs: any[] = [];
 
-    // Enqueue each image rapidly
-    for (const file of files) {
-      const userMessage = await prisma.chatMessage.create({
-        data: {
-          conversationId,
-          sender: 'USER',
-          text: `📷 [إشعار تحويل بنكي: ${file.originalname}]`,
-          mediaUrl: file.path
-        }
-      });
-
+    // 3. Enqueue each image rapidly
+    for (const item of createdUserMessages) {
       const queueRes = await NotificationQueueService.enqueueJob({
         conversationId,
         direction: conversation.direction as 'INWARD' | 'OUTWARD',
-        imagePath: file.path,
-        originalFilename: file.originalname,
+        imagePath: item.file.path,
+        originalFilename: item.file.originalname,
         batchId: batch.id,
-        userMessageId: userMessage.id
+        userMessageId: item.userMessageId
       });
 
       jobs.push(queueRes);
@@ -161,7 +172,7 @@ whatsappRouter.post('/conversations/:id/batch-messages', upload.array('images', 
  */
 whatsappRouter.get('/batches/:batchId/status', async (req, res) => {
   try {
-    const status = await NotificationQueueService.getBatchStatus(req.params.batchId);
+    const status = await NotificationQueueService.getBatchStatus(String(req.params.batchId));
     if (!status) {
       return res.status(404).json({ success: false, error: 'الدفعة غير موجودة' });
     }
@@ -176,7 +187,7 @@ whatsappRouter.get('/batches/:batchId/status', async (req, res) => {
  */
 whatsappRouter.post('/jobs/:jobId/retry', async (req, res) => {
   try {
-    const result = await NotificationQueueService.retryJob(req.params.jobId);
+    const result = await NotificationQueueService.retryJob(String(req.params.jobId));
     res.json({ success: true, data: result });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });

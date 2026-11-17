@@ -3,6 +3,8 @@ import path from 'path';
 import fs from 'fs';
 
 export class ImagePreprocessor {
+  private static tempDir = path.resolve(process.cwd(), 'temp', 'preprocessed');
+
   /**
    * Preprocesses a mobile bank notification screenshot:
    * 1. Grayscale conversion to eliminate color noise.
@@ -10,10 +12,12 @@ export class ImagePreprocessor {
    * 3. Normalize contrast and sharpen edges.
    */
   public static async preprocess(inputPath: string, outputPath?: string): Promise<string> {
-    const targetPath = outputPath || path.join(
-      path.dirname(inputPath),
-      `preprocessed_${path.basename(inputPath, path.extname(inputPath))}.png`
-    );
+    if (!fs.existsSync(ImagePreprocessor.tempDir)) {
+      fs.mkdirSync(ImagePreprocessor.tempDir, { recursive: true });
+    }
+
+    const uniqueName = `prep_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.png`;
+    const targetPath = outputPath || path.join(ImagePreprocessor.tempDir, uniqueName);
 
     await sharp(inputPath)
       .grayscale()

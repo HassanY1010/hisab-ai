@@ -58,7 +58,9 @@ app.use('/samples', express.static(samplesDir));
 app.get('/api/samples', (_req, res) => {
   try {
     if (fs.existsSync(samplesDir)) {
-      const files = fs.readdirSync(samplesDir).filter((f: string) => f.endsWith('.jpg') || f.endsWith('.png'));
+      const files = fs.readdirSync(samplesDir)
+        .filter((f: string) => !f.startsWith('preprocessed_') && (f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.png')))
+        .sort();
       res.json({
         success: true,
         data: files.map((file: string) => ({

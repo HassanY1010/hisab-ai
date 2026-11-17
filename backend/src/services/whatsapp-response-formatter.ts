@@ -305,26 +305,29 @@ export class WhatsAppResponseFormatter {
     const title = params.title || 'حساب إشعارات الدفعة';
 
     lines.push(`📋 *${title}*`);
-    lines.push(`▫️ عدد الإشعارات: *${params.totalReceived}*`);
+    lines.push(`▫️ عدد الصور المستلمة: *${params.totalReceived}*`);
+    lines.push(`▫️ العمليات المسجلة: *${params.rows.length}*`);
+    lines.push(`▫️ الإشعارات المكررة: *${params.duplicateCount || 0}*`);
+    lines.push(`▫️ الإشعارات التي تحتاج مراجعة: *${(params.reviewCount || 0) + (params.failedCount || 0)}*`);
     lines.push('');
 
     if (params.rows.length > 0) {
       lines.push('| # | الاسم | رقم الإشعار | المبلغ |');
       lines.push('|---|---|---|---:|');
       for (const row of params.rows) {
-        const cleanName = (row.name && row.name.trim().length > 0) ? row.name.trim() : 'غير متوفر';
+        const cleanName = (row.name && row.name.trim().length > 0) ? row.name.trim() : '«غير متوفر»';
         lines.push(`| ${row.index} | ${cleanName} | ${row.txNumber} | ${row.amount.toLocaleString('en-US')} |`);
       }
       lines.push('');
-      lines.push(`*الإجمالي: ${params.totalAmount.toLocaleString('en-US')} SDG*`);
+      lines.push(`*المجموع: ${params.totalAmount.toLocaleString('en-US')} SDG*`);
     } else {
       lines.push('⚠️ *تنبيه: لم يتم تسجيل أي إشعارات جديدة في هذه الدفعة.*');
-      lines.push('*الإجمالي: 0 SDG*');
+      lines.push('*المجموع: 0 SDG*');
     }
 
     const notes: string[] = [];
     if (params.duplicateCount && params.duplicateCount > 0) {
-      notes.push(`▫️ إشعارات مكررة (تم حجبها): *${params.duplicateCount}*`);
+      notes.push(`▫️ إشعارات مكررة (تم حجبها ولم تُضف للمجموع): *${params.duplicateCount}*`);
     }
     if (params.reviewCount && params.reviewCount > 0) {
       notes.push(`▫️ إشعارات تحتاج مراجعة: *${params.reviewCount}*`);

@@ -20,7 +20,7 @@ export class SupabaseStorageService {
             autoRefreshToken: false,
           },
           realtime: {
-            transport: ws,
+            transport: ws as any,
           },
         });
         return this.client;

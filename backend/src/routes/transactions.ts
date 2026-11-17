@@ -130,7 +130,7 @@ transactionsRouter.post('/', async (req, res) => {
     });
   } catch (err: any) {
     if (err instanceof z.ZodError) {
-      return res.status(400).json({ success: false, error: err.errors });
+      return res.status(400).json({ success: false, error: err.issues });
     }
     res.status(500).json({ success: false, error: err.message });
   }

@@ -354,14 +354,17 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
 
       return (
         <div className="space-y-3 py-1 max-w-full">
-          {/* Header matching image: حساب إشعارات الدفعة / عدد الإشعارات */}
-          <div className="text-right border-b border-emerald-200/60 pb-2">
+          {/* Header matching image and specifications */}
+          <div className="text-right border-b border-emerald-200/60 pb-2 space-y-1.5">
             <div className="text-sm font-black text-slate-950 flex items-center space-x-1.5 space-x-reverse">
               <span className="text-emerald-700">📋</span>
               <span>حساب إشعارات الدفعة</span>
             </div>
-            <div className="text-[11px] font-bold text-slate-600 mt-0.5">
-              عدد الإشعارات: <span className="font-black text-slate-900">{totalCount}</span>
+            <div className="grid grid-cols-2 gap-1.5 text-[11px] font-bold text-slate-700 bg-emerald-50/70 p-2 rounded-lg border border-emerald-200/50">
+              <div>عدد الصور المستلمة: <span className="font-black text-slate-950">{totalCount}</span></div>
+              <div>العمليات المسجلة: <span className="font-black text-emerald-900">{rows.length}</span></div>
+              <div>الإشعارات المكررة: <span className={`font-black ${duplicateCount > 0 ? 'text-amber-700 underline' : 'text-slate-900'}`}>{duplicateCount}</span></div>
+              <div>تحتاج مراجعة: <span className={`font-black ${(reviewCount + failedCount) > 0 ? 'text-rose-700' : 'text-slate-900'}`}>{reviewCount + failedCount}</span></div>
             </div>
           </div>
 
@@ -684,13 +687,13 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
                     }`}
                   >
                     {/* Media Image If Exists */}
-                    {m.mediaPath && (
+                    {(m.mediaUrl || m.mediaPath) && (
                       <div className="mb-2 rounded-xl overflow-hidden border border-slate-300 bg-slate-100 max-h-56">
                         <img
-                          src={getAssetUrl(m.mediaPath)}
+                          src={getAssetUrl(m.mediaUrl || m.mediaPath)}
                           alt="إشعار بنكي"
                           className="w-full h-auto object-contain cursor-pointer"
-                          onClick={() => window.open(getAssetUrl(m.mediaPath), '_blank')}
+                          onClick={() => window.open(getAssetUrl(m.mediaUrl || m.mediaPath), '_blank')}
                         />
                       </div>
                     )}
