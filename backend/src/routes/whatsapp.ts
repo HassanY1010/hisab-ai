@@ -86,20 +86,20 @@ whatsappRouter.post('/conversations/:id/batch-messages', upload.array('images', 
       return res.status(400).json({ success: false, error: 'لم يتم إرفاق أي صور' });
     }
 
-    const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
+    const conversation = await withDbRetry(() => prisma.conversation.findUnique({ where: { id: conversationId } }));
     if (!conversation) {
       return res.status(404).json({ success: false, error: 'المحادثة غير موجودة' });
     }
 
     // Create a dedicated batch for this multi-image burst
-    const batch = await prisma.notificationBatch.create({
+    const batch = await withDbRetry(() => prisma.notificationBatch.create({
       data: {
         conversationId,
-        direction: conversation.direction,
+        direction: conversation.direction as 'INWARD' | 'OUTWARD',
         status: 'PROCESSING',
         totalJobs: files.length
       }
-    });
+    }));
 
     // 1. Create ALL user messages first so they are guaranteed to appear first in chronological order
     const baseTime = Date.now();

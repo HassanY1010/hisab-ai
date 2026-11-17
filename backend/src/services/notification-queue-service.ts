@@ -184,6 +184,7 @@ export class NotificationQueueService {
    */
   private static async processJob(jobId: string) {
     let currentJob: any = null;
+    let isBulkBatch = false;
 
     try {
       // 1. Atomic claim: transition from 'QUEUED' to 'PROCESSING'
@@ -210,7 +211,6 @@ export class NotificationQueueService {
       currentJob = job;
 
       // Determine if job belongs to a bulk batch (more than 1 job in batch)
-      let isBulkBatch = false;
       if (job.batchId) {
         const batchInfo = await prisma.notificationBatch.findUnique({
           where: { id: job.batchId },

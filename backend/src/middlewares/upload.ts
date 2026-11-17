@@ -24,11 +24,14 @@ export const upload = multer({
     fileSize: 15 * 1024 * 1024 // 15 MB
   },
   fileFilter: (_req, file, cb) => {
-    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
-    if (allowed.includes(file.mimetype)) {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const isImageExt = ['.jpg', '.jpeg', '.png', '.webp', '.jfif', '.bmp', '.heic'].includes(ext);
+    const isImageMime = file.mimetype.startsWith('image/') || file.mimetype === 'application/octet-stream';
+
+    if (isImageMime || isImageExt) {
       cb(null, true);
     } else {
-      cb(new Error('صيغة الملف غير مدعومة. يرجى رفع صورة بصيغة JPG أو PNG أو WEBP.'));
+      cb(null, false);
     }
   }
 });
