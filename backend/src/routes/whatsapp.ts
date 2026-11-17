@@ -1,5 +1,7 @@
 import { Router } from 'express';
-import { prisma } from '../services/db';
+import path from 'path';
+import fs from 'fs';
+import { prisma, withDbRetry } from '../services/db';
 import { WhatsAppBotService } from '../services/whatsapp-bot-service';
 import { WhatsAppResponseFormatter } from '../services/whatsapp-response-formatter';
 import { NotificationQueueService } from '../services/notification-queue-service';
@@ -157,6 +159,111 @@ whatsappRouter.post('/conversations/:id/batch-messages', upload.array('images', 
       data: {
         batchId: batch.id,
         totalReceived: files.length,
+        jobs
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * Instant Sample Launcher (Server-side Staging)
+ * Allows sending sample receipts immediately without downloading/re-uploading large images over cellular network
+ */
+whatsappRouter.post('/conversations/:id/send-samples', async (req, res) => {
+  try {
+    const conversationId = String(req.params.id);
+    const requestedFiles: string[] = req.body.filenames;
+
+    const samplesDir = path.resolve(__dirname, '../../../sample-data/bank-notifications');
+    let targetFiles: string[] = [];
+
+    if (Array.isArray(requestedFiles) && requestedFiles.length > 0) {
+      targetFiles = requestedFiles.filter(f => fs.existsSync(path.join(samplesDir, f)));
+    } else {
+      targetFiles = fs.readdirSync(samplesDir)
+        .filter(f => !f.startsWith('preprocessed_') && (f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.png')))
+        .sort();
+    }
+
+    if (targetFiles.length === 0) {
+      return res.status(400).json({ success: false, error: 'لم يتم العثور على أي ملفات عينات صالحة' });
+    }
+
+    const conversation = await withDbRetry(() => prisma.conversation.findUnique({ where: { id: conversationId } }));
+    if (!conversation) {
+      return res.status(404).json({ success: false, error: 'المحادثة غير موجودة' });
+    }
+
+    // 1. Create a dedicated batch for this multi-sample burst
+    const batch = await withDbRetry(() => prisma.notificationBatch.create({
+      data: {
+        conversationId,
+        direction: conversation.direction as 'INWARD' | 'OUTWARD',
+        status: 'PROCESSING',
+        totalJobs: targetFiles.length
+      }
+    }));
+
+    // 2. Create ALL user messages first with public web URL (/samples/filename)
+    const baseTime = Date.now();
+    const createdUserMessages = await Promise.all(
+      targetFiles.map(async (filename, i) => {
+        const publicUrl = `/samples/${filename}`;
+        const userMessage = await withDbRetry(() => prisma.chatMessage.create({
+          data: {
+            conversationId,
+            sender: 'USER',
+            text: `📷 [إشعار تحويل بنكي: ${filename}]`,
+            mediaUrl: publicUrl,
+            createdAt: new Date(baseTime + i * 20)
+          }
+        }));
+        return { filename, userMessageId: userMessage.id };
+      })
+    );
+
+    // 3. Create the temporary progress message strictly AFTER all user messages
+    const progressMessage = await withDbRetry(() => prisma.chatMessage.create({
+      data: {
+        conversationId,
+        sender: 'BOT',
+        text: WhatsAppResponseFormatter.formatBatchProgress(0, targetFiles.length),
+        metadata: JSON.stringify({
+          type: 'BATCH_PROGRESS',
+          batchId: batch.id,
+          total: targetFiles.length,
+          completed: 0
+        }),
+        createdAt: new Date(baseTime + targetFiles.length * 20 + 50)
+      }
+    }));
+
+    await withDbRetry(() => prisma.notificationBatch.update({
+      where: { id: batch.id },
+      data: { summaryMessageId: progressMessage.id }
+    }));
+
+    // 4. Enqueue each image rapidly into the queue
+    const jobs = await Promise.all(
+      createdUserMessages.map(item =>
+        NotificationQueueService.enqueueJob({
+          conversationId,
+          direction: conversation.direction as 'INWARD' | 'OUTWARD',
+          imagePath: path.join(samplesDir, item.filename),
+          originalFilename: item.filename,
+          batchId: batch.id,
+          userMessageId: item.userMessageId
+        })
+      )
+    );
+
+    res.json({
+      success: true,
+      data: {
+        batchId: batch.id,
+        totalReceived: targetFiles.length,
         jobs
       }
     });

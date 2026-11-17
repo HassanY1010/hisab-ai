@@ -166,6 +166,11 @@ export const api = {
     });
     return await res.json();
   },
+  sendWhatsAppSamples: (convId: string, filenames?: string[]) =>
+    fetchJson(`/whatsapp/conversations/${convId}/send-samples`, {
+      method: 'POST',
+      body: JSON.stringify({ filenames }),
+    }),
   getWhatsAppBatchStatus: (batchId: string) => fetchJson(`/whatsapp/batches/${batchId}/status`),
   retryWhatsAppJob: (jobId: string) => fetchJson(`/whatsapp/jobs/${jobId}/retry`, { method: 'POST' }),
 

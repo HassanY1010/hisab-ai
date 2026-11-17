@@ -158,18 +158,14 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
   };
 
   /**
-   * Non-blocking rapid sample sender: immediately dispatches to background queue
-   * User can click multiple samples continuously without waiting!
+   * Non-blocking rapid sample sender: immediately dispatches to background queue via server-side staging
+   * Instant response in milliseconds without downloading/re-uploading images over network
    */
   const handleSendSampleImage = async (filename: string) => {
     if (!activeConv) return;
 
     try {
-      const imgRes = await fetch(getAssetUrl(`/samples/${filename}`));
-      const blob = await imgRes.blob();
-      const file = new File([blob], filename, { type: 'image/jpeg' });
-
-      const res = await api.sendWhatsAppMessage(activeConv.id, '', file, activeBatchId || undefined);
+      const res = await api.sendWhatsAppSamples(activeConv.id, [filename]);
       if (res && res.success !== false) {
         if (res.data?.batchId) {
           setActiveBatchId(res.data.batchId);
@@ -182,23 +178,15 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
   };
 
   /**
-   * Bulk launcher: sends all 6 real samples at once in a single batch
+   * Instant Bulk Launcher: dispatches all 6 real samples immediately on server
+   * Eliminates 6-MB cellular upload delay so the button responds in milliseconds!
    */
   const handleSendAllSamples = async () => {
-    if (!activeConv || samples.length === 0 || isSending) return;
+    if (!activeConv || isSending) return;
     setIsSending(true);
 
     try {
-      // Fetch all sample files in parallel for instant bulk staging
-      const files: File[] = await Promise.all(
-        samples.map(async (s) => {
-          const imgRes = await fetch(getAssetUrl(`/samples/${s.filename}`));
-          const blob = await imgRes.blob();
-          return new File([blob], s.filename, { type: 'image/jpeg' });
-        })
-      );
-
-      const res = await api.sendWhatsAppBatchMessages(activeConv.id, files);
+      const res = await api.sendWhatsAppSamples(activeConv.id);
       if (res && res.success !== false) {
         if (res.data?.batchId) {
           setActiveBatchId(res.data.batchId);
