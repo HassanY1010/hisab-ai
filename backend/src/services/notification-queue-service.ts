@@ -1,0 +1,653 @@
+import { prisma, withDbRetry } from './db';
+import { TransactionService } from './transaction-service';
+import { TesseractOcrAdapter } from './ocr/tesseract-adapter';
+import { SupabaseStorageService } from './storage/supabase-storage';
+import { WhatsAppResponseFormatter } from './whatsapp-response-formatter';
+import { ReceiptDateParser } from './ocr/receipt-date-parser';
+import fs from 'fs';
+import path from 'path';
+
+export { withDbRetry };
+
+export interface EnqueueJobInput {
+  conversationId: string;
+  direction: 'INWARD' | 'OUTWARD';
+  imagePath: string;
+  storageKey?: string;
+  originalFilename?: string;
+  batchId?: string;
+  userMessageId?: string;
+}
+
+export class NotificationQueueService {
+  private static ocrAdapter = new TesseractOcrAdapter();
+  private static concurrencyLimit = parseInt(process.env.NOTIFICATION_QUEUE_CONCURRENCY || '3', 10);
+  private static activeWorkers = 0;
+  private static memoryQueue: string[] = []; // Job IDs
+  private static isInitialized = false;
+  private static batchDebounceTimers: Map<string, NodeJS.Timeout> = new Map();
+  private static activeBurstBatches: Map<string, { batchId: string; lastSeen: number }> = new Map();
+
+  /**
+   * Initializes queue, recovers dangling jobs from server restart, and boots workers
+   */
+  public static async init() {
+    if (this.isInitialized) return;
+    this.isInitialized = true;
+
+    try {
+      console.log(`[Queue] Initializing NotificationQueueService with concurrency=${this.concurrencyLimit}...`);
+
+      // 1. Recover any jobs that were stuck in 'PROCESSING' due to server crash/restart
+      const recovered = await prisma.imageProcessingJob.updateMany({
+        where: { status: 'PROCESSING' },
+        data: {
+          status: 'QUEUED',
+          errorMessage: 'تم استعادة المهمة بعد إعادة تشغيل الخادم'
+        }
+      });
+      if (recovered.count > 0) {
+        console.log(`[Queue] Recovered ${recovered.count} in-flight jobs after server restart.`);
+      }
+
+      // 2. Load all pending QUEUED jobs ordered by arrival time (FIFO)
+      const pendingJobs = await prisma.imageProcessingJob.findMany({
+        where: { status: 'QUEUED' },
+        orderBy: { receivedAt: 'asc' },
+        select: { id: true }
+      });
+
+      for (const job of pendingJobs) {
+        if (!this.memoryQueue.includes(job.id)) {
+          this.memoryQueue.push(job.id);
+        }
+      }
+
+      console.log(`[Queue] Loaded ${this.memoryQueue.length} pending jobs from database.`);
+      this.triggerProcessing();
+    } catch (err: any) {
+      console.error('[Queue] Error during queue initialization:', err);
+    }
+  }
+
+  /**
+   * Resolves or creates an active burst batch for a conversation.
+   * If an image arrives within 4 seconds of previous image in the same channel,
+   * it is automatically bundled into the same batch.
+   */
+  public static async getOrCreateActiveBatch(conversationId: string, direction: 'INWARD' | 'OUTWARD'): Promise<string> {
+    const now = Date.now();
+    const burst = this.activeBurstBatches.get(conversationId);
+
+    if (burst && (now - burst.lastSeen) < 4000) {
+      burst.lastSeen = now;
+      // Increment batch total
+      await withDbRetry(() => prisma.notificationBatch.update({
+        where: { id: burst.batchId },
+        data: { totalJobs: { increment: 1 } }
+      })).catch(() => {});
+      return burst.batchId;
+    }
+
+    // Create a new batch
+    const newBatch = await withDbRetry(() => prisma.notificationBatch.create({
+      data: {
+        conversationId,
+        direction,
+        status: 'PROCESSING',
+        totalJobs: 1
+      }
+    }));
+
+    this.activeBurstBatches.set(conversationId, { batchId: newBatch.id, lastSeen: now });
+    return newBatch.id;
+  }
+
+  /**
+   * Enqueues an image notification into the database and memory queue
+   */
+  public static async enqueueJob(input: EnqueueJobInput): Promise<{ jobId: string; batchId: string; status: string }> {
+    if (!this.isInitialized) {
+      await this.init();
+    }
+
+    const batchId = input.batchId || (await this.getOrCreateActiveBatch(input.conversationId, input.direction));
+
+    // Create persistent job record in PostgreSQL
+    const job = await withDbRetry(() => prisma.imageProcessingJob.create({
+      data: {
+        batchId,
+        conversationId: input.conversationId,
+        direction: input.direction,
+        imagePath: input.imagePath,
+        storageKey: input.storageKey,
+        originalFilename: input.originalFilename,
+        userMessageId: input.userMessageId,
+        status: 'QUEUED',
+        attempts: 0,
+        maxAttempts: 3
+      }
+    }));
+
+    this.memoryQueue.push(job.id);
+    this.triggerProcessing();
+
+    return { jobId: job.id, batchId, status: 'QUEUED' };
+  }
+
+  /**
+   * Triggers worker loop according to concurrency limit
+   */
+  private static triggerProcessing() {
+    while (this.activeWorkers < this.concurrencyLimit && this.memoryQueue.length > 0) {
+      const nextJobId = this.memoryQueue.shift();
+      if (nextJobId) {
+        this.activeWorkers++;
+        this.processJob(nextJobId).finally(() => {
+          this.activeWorkers--;
+          this.triggerProcessing();
+        });
+      }
+    }
+  }
+
+  /**
+   * Processes a single notification job with atomic locking, retry policy, and idempotency
+   */
+  private static async processJob(jobId: string) {
+    let currentJob: any = null;
+
+    try {
+      // 1. Atomic claim: transition from 'QUEUED' to 'PROCESSING'
+      const updated = await prisma.imageProcessingJob.updateMany({
+        where: { id: jobId, status: 'QUEUED' },
+        data: {
+          status: 'PROCESSING',
+          startedAt: new Date(),
+          attempts: { increment: 1 }
+        }
+      });
+
+      if (updated.count === 0) {
+        // Job was already claimed or cancelled
+        return;
+      }
+
+      const job = await prisma.imageProcessingJob.findUnique({
+        where: { id: jobId },
+        include: { conversation: true }
+      });
+
+      if (!job) return;
+      currentJob = job;
+
+      let mediaUrl = job.imagePath;
+      let storageKey = job.storageKey || undefined;
+      // 2. Upload to Supabase Storage if local file and not yet stored
+      if (job.imagePath && fs.existsSync(job.imagePath) && !storageKey) {
+        try {
+          const buffer = fs.readFileSync(job.imagePath);
+          const filename = job.originalFilename || `receipt_${job.id}.jpg`;
+          const uploadRes = await SupabaseStorageService.uploadReceipt(buffer, filename);
+          mediaUrl = uploadRes.url;
+          storageKey = uploadRes.storageKey;
+          await prisma.imageProcessingJob.update({
+            where: { id: jobId },
+            data: { imagePath: mediaUrl, storageKey }
+          });
+        } catch (uploadErr: any) {
+          console.warn(`[Queue] Storage upload warning for job ${jobId}:`, uploadErr.message);
+        }
+      }
+
+      // 3. OCR Engine execution (with remote download fallback)
+      let localOcrPath = job.imagePath;
+      if (localOcrPath.startsWith('http://') || localOcrPath.startsWith('https://')) {
+        const tempDir = path.join(process.cwd(), 'temp');
+        const tempPath = path.join(tempDir, `temp_${job.id}.jpg`);
+        try {
+          if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir, { recursive: true });
+          }
+          if (!fs.existsSync(tempPath)) {
+            const resp = await fetch(localOcrPath);
+            if (resp.ok) {
+              const buf = Buffer.from(await resp.arrayBuffer());
+              fs.writeFileSync(tempPath, buf);
+              localOcrPath = tempPath;
+            }
+          } else {
+            localOcrPath = tempPath;
+          }
+        } catch (fetchErr: any) {
+          console.warn(`[Queue] Could not download remote image for OCR: ${fetchErr.message}`);
+        }
+      }
+
+      const parsed = await this.ocrAdapter.parseReceipt(localOcrPath);
+
+      const hasMinimalText = Boolean(parsed.rawText && parsed.rawText.trim().length >= 15);
+
+      if (!hasMinimalText || parsed.status === 'FAILED') {
+        // Needs review / extraction failed
+        await prisma.imageProcessingJob.update({
+          where: { id: jobId },
+          data: {
+            status: 'NEEDS_REVIEW',
+            extractedText: parsed.rawText || '',
+            errorMessage: 'تعذر استخراج نصوص كافية من صورة الإشعار',
+            completedAt: new Date()
+          }
+        });
+
+        const replyText = WhatsAppResponseFormatter.formatExtractionFailed();
+        const botMsg = await prisma.chatMessage.create({
+          data: {
+            conversationId: job.conversationId,
+            sender: 'BOT',
+            text: replyText
+          }
+        });
+
+        await prisma.imageProcessingJob.update({
+          where: { id: jobId },
+          data: { botMessageId: botMsg.id }
+        });
+
+        await this.handleBatchProgress(job.batchId);
+        return;
+      }
+
+      if (!parsed.normalizedTxNumber || parsed.amount === null || parsed.amount <= 0) {
+        // Incomplete extracted data
+        await prisma.imageProcessingJob.update({
+          where: { id: jobId },
+          data: {
+            status: 'NEEDS_REVIEW',
+            extractedText: parsed.rawText || '',
+            extractedTxNumber: parsed.normalizedTxNumber || undefined,
+            extractedAmount: parsed.amount || undefined,
+            errorMessage: !parsed.normalizedTxNumber ? 'تعذر استخراج رقم العملية' : 'تعذر استخراج المبلغ المالي',
+            completedAt: new Date()
+          }
+        });
+
+        const replyText = WhatsAppResponseFormatter.formatIncompleteData({
+          transactionNumber: parsed.normalizedTxNumber,
+          amount: parsed.amount,
+          dateStr: parsed.formattedDate,
+          timeStr: parsed.formattedTime,
+          reason: !parsed.normalizedTxNumber ? 'تعذر استخراج رقم العملية بدقة' : 'تعذر استخراج المبلغ المالي'
+        });
+
+        const botMsg = await prisma.chatMessage.create({
+          data: {
+            conversationId: job.conversationId,
+            sender: 'BOT',
+            text: replyText
+          }
+        });
+
+        await prisma.imageProcessingJob.update({
+          where: { id: jobId },
+          data: { botMessageId: botMsg.id }
+        });
+
+        await this.handleBatchProgress(job.batchId);
+        return;
+      }
+
+      // 4. Register Transaction with strict deduplication & concurrency safety
+      const regResult = await TransactionService.registerTransaction({
+        transactionNumber: parsed.normalizedTxNumber,
+        amount: parsed.amount,
+        direction: job.direction as 'INWARD' | 'OUTWARD',
+        senderAccount: parsed.senderAccount || undefined,
+        receiverAccount: parsed.receiverAccount || undefined,
+        beneficiaryName: parsed.beneficiaryName || undefined,
+        transactionDate: parsed.transactionDate || undefined,
+        imagePath: mediaUrl,
+        storageKey,
+        extractedText: parsed.rawText,
+        rawOcrJson: JSON.stringify(parsed),
+        ocrStatus: parsed.status,
+        verificationStatus: 'VERIFIED'
+      });
+
+      let botReplyText = '';
+      let linkedTxId: string | undefined = undefined;
+      let finalJobStatus: 'REGISTERED' | 'DUPLICATE' | 'FAILED' = 'REGISTERED';
+
+      if (regResult.status === 'DUPLICATE') {
+        finalJobStatus = 'DUPLICATE';
+        const orig = regResult.duplicateDetails?.originalTransaction;
+        const isMismatch = regResult.duplicateDetails?.amountMismatch;
+        const origAmount = orig ? Number(orig.amount) : 0;
+        const origDate = orig?.transactionDate
+          ? ReceiptDateParser.formatDateStr(new Date(orig.transactionDate).getUTCFullYear(), new Date(orig.transactionDate).getUTCMonth() + 1, new Date(orig.transactionDate).getUTCDate())
+          : parsed.formattedDate;
+
+        botReplyText = WhatsAppResponseFormatter.formatDuplicate({
+          transactionNumber: parsed.normalizedTxNumber,
+          amount: parsed.amount,
+          dateStr: origDate || parsed.formattedDate,
+          originalAmount: origAmount,
+          amountMismatch: isMismatch
+        });
+        linkedTxId = orig?.id;
+      } else if (regResult.status === 'SUCCESS') {
+        finalJobStatus = 'REGISTERED';
+        const stats = await TransactionService.getFinancialStats();
+        botReplyText = WhatsAppResponseFormatter.formatSuccess({
+          transactionNumber: parsed.normalizedTxNumber,
+          amount: parsed.amount,
+          direction: job.direction as 'INWARD' | 'OUTWARD',
+          dateStr: parsed.formattedDate,
+          timeStr: parsed.formattedTime,
+          beneficiaryName: parsed.beneficiaryName,
+          receiverAccount: parsed.receiverAccount,
+          senderAccount: parsed.senderAccount,
+          stats: {
+            totalInward: stats.totalInward,
+            totalOutward: stats.totalOutward,
+            netBalance: stats.netBalance,
+            totalCount: stats.totalTransactions
+          }
+        });
+        linkedTxId = regResult.transaction?.id;
+      } else {
+        finalJobStatus = 'FAILED';
+        botReplyText = WhatsAppResponseFormatter.formatFailure();
+      }
+
+      // 5. Post Bot Response to Chat
+      const botMsg = await prisma.chatMessage.create({
+        data: {
+          conversationId: job.conversationId,
+          sender: 'BOT',
+          text: botReplyText,
+          transactionId: linkedTxId
+        }
+      });
+
+      // 6. Finalize Job Status
+      await prisma.imageProcessingJob.update({
+        where: { id: jobId },
+        data: {
+          status: finalJobStatus,
+          extractedText: parsed.rawText,
+          extractedTxNumber: parsed.normalizedTxNumber,
+          extractedAmount: parsed.amount,
+          transactionId: linkedTxId,
+          botMessageId: botMsg.id,
+          completedAt: new Date()
+        }
+      });
+
+      await this.handleBatchProgress(job.batchId);
+
+    } catch (err: any) {
+      console.error(`[Queue] Error processing job ${jobId}:`, err.message);
+
+      // Temporary database outage / network glitch (e.g. P1001)
+      if (err.code === 'P1001' || (err.message && err.message.includes("Can't reach database server"))) {
+        console.warn(`[Queue] Transient DB disconnect on job ${jobId}. Retrying with backoff in 2s...`);
+        setTimeout(() => {
+          this.memoryQueue.push(jobId);
+          this.triggerProcessing();
+        }, 2000);
+        return;
+      }
+
+      const attempts = currentJob?.attempts || 1;
+      const maxAttempts = currentJob?.maxAttempts || 3;
+
+      // Retry policy for transient failures
+      if (attempts < maxAttempts) {
+        console.log(`[Queue] Scheduling retry for job ${jobId} (attempt ${attempts + 1}/${maxAttempts})...`);
+        try {
+          await prisma.imageProcessingJob.update({
+            where: { id: jobId },
+            data: {
+              status: 'QUEUED',
+              errorMessage: `خطأ مؤقت: ${err.message}`
+            }
+          });
+        } catch {}
+        setTimeout(() => {
+          this.memoryQueue.push(jobId);
+          this.triggerProcessing();
+        }, 1500 * attempts); // Exponential backoff
+      } else {
+        // Exceeded retries -> Mark as FAILED
+        try {
+          await prisma.imageProcessingJob.update({
+            where: { id: jobId },
+            data: {
+              status: 'FAILED',
+              errorMessage: err.message,
+              completedAt: new Date()
+            }
+          });
+        } catch {}
+
+        if (currentJob?.conversationId) {
+          try {
+            await prisma.chatMessage.create({
+              data: {
+                conversationId: currentJob.conversationId,
+                sender: 'BOT',
+                text: WhatsAppResponseFormatter.formatFailure()
+              }
+            });
+          } catch {}
+        }
+
+        if (currentJob?.batchId) {
+          await this.handleBatchProgress(currentJob.batchId);
+        }
+      }
+    }
+  }
+
+  /**
+   * Tracks batch progress and schedules the final batch summary once all jobs finish
+   */
+  private static async handleBatchProgress(batchId?: string | null) {
+    if (!batchId) return;
+
+    // Clear existing debounce timer if any
+    const existingTimer = this.batchDebounceTimers.get(batchId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      this.batchDebounceTimers.delete(batchId);
+    }
+
+    // Set debounce timer (2.5 seconds). If no new jobs start in this batch, complete and emit summary!
+    const timer = setTimeout(async () => {
+      try {
+        await this.finalizeBatchSummary(batchId);
+      } catch (err: any) {
+        console.error(`[Queue] Failed to finalize batch summary for ${batchId}:`, err);
+      } finally {
+        this.batchDebounceTimers.delete(batchId);
+      }
+    }, 2500);
+
+    this.batchDebounceTimers.set(batchId, timer);
+  }
+
+  /**
+   * Computes actual database statistics for the batch and sends the official WhatsApp Batch Summary
+   */
+  private static async finalizeBatchSummary(batchId: string) {
+    const batch = await prisma.notificationBatch.findUnique({
+      where: { id: batchId },
+      include: {
+        jobs: {
+          include: { transaction: true }
+        }
+      }
+    });
+
+    if (!batch || batch.summarySent || batch.jobs.length === 0) return;
+
+    // Check if any job is still QUEUED or PROCESSING
+    const pendingCount = batch.jobs.filter(j => j.status === 'QUEUED' || j.status === 'PROCESSING').length;
+    if (pendingCount > 0) {
+      // Some jobs are still running, do not emit summary yet!
+      return;
+    }
+
+    // Atomic lock to guarantee summary is only generated and sent ONCE per batch
+    const claimed = await prisma.notificationBatch.updateMany({
+      where: { id: batchId, summarySent: false },
+      data: { summarySent: true }
+    });
+    if (claimed.count === 0) return;
+
+    // Only emit batch summary if batch had 2 or more receipts (or if single multi-upload batch)
+    if (batch.jobs.length < 2) {
+      // Single notification already has its own comprehensive success response
+      await prisma.notificationBatch.update({
+        where: { id: batchId },
+        data: { status: 'COMPLETED', summarySent: true, completedAt: new Date() }
+      });
+      return;
+    }
+
+    // Calculate real database numbers
+    const totalReceived = batch.jobs.length;
+    const registeredJobs = batch.jobs.filter(j => j.status === 'REGISTERED');
+    const registeredCount = registeredJobs.length;
+    const duplicateCount = batch.jobs.filter(j => j.status === 'DUPLICATE').length;
+    const reviewCount = batch.jobs.filter(j => j.status === 'NEEDS_REVIEW').length;
+    const failedCount = batch.jobs.filter(j => j.status === 'FAILED').length;
+
+    // Sum actual database transaction amounts for this batch
+    let batchTotalInward = 0;
+    let batchTotalOutward = 0;
+
+    for (const job of registeredJobs) {
+      if (job.transaction) {
+        const amt = Number(job.transaction.amount);
+        if (job.transaction.direction === 'INWARD') {
+          batchTotalInward += amt;
+        } else if (job.transaction.direction === 'OUTWARD') {
+          batchTotalOutward += amt;
+        }
+      }
+    }
+    const batchNetBalance = batchTotalInward - batchTotalOutward;
+
+    // Get live overall financial stats across the entire database
+    const overallStats = await TransactionService.getFinancialStats();
+
+    // Format the official Batch Summary
+    const summaryText = WhatsAppResponseFormatter.formatBatchSummary({
+      totalReceived,
+      registeredCount,
+      duplicateCount,
+      reviewCount,
+      failedCount,
+      batchTotalInward,
+      batchTotalOutward,
+      batchNetBalance,
+      overallTotalInward: overallStats.totalInward,
+      overallTotalOutward: overallStats.totalOutward,
+      overallNetBalance: overallStats.netBalance,
+      overallTotalCount: overallStats.totalTransactions
+    });
+
+    // Post to Chat
+    const summaryMsg = await prisma.chatMessage.create({
+      data: {
+        conversationId: batch.conversationId,
+        sender: 'BOT',
+        text: summaryText
+      }
+    });
+
+    // Mark Batch as COMPLETED
+    await prisma.notificationBatch.update({
+      where: { id: batchId },
+      data: {
+        status: 'COMPLETED',
+        registeredCount,
+        duplicateCount,
+        reviewCount,
+        failedCount,
+        totalAmount: batchTotalInward + batchTotalOutward,
+        summarySent: true,
+        summaryMessageId: summaryMsg.id,
+        completedAt: new Date()
+      }
+    });
+
+    console.log(`[Queue] Successfully generated and sent batch summary for batch=${batchId} (${registeredCount} registered, ${duplicateCount} duplicates).`);
+  }
+
+  /**
+   * Retrieves status of a batch for live frontend polling
+   */
+  public static async getBatchStatus(batchId: string) {
+    const batch = await prisma.notificationBatch.findUnique({
+      where: { id: batchId },
+      include: {
+        jobs: {
+          select: {
+            id: true,
+            status: true,
+            originalFilename: true,
+            extractedTxNumber: true,
+            extractedAmount: true,
+            attempts: true,
+            errorMessage: true,
+            receivedAt: true,
+            completedAt: true
+          },
+          orderBy: { receivedAt: 'asc' }
+        }
+      }
+    });
+
+    if (!batch) return null;
+
+    const completedJobs = batch.jobs.filter(j => j.status !== 'QUEUED' && j.status !== 'PROCESSING').length;
+
+    return {
+      id: batch.id,
+      status: batch.status,
+      totalJobs: batch.jobs.length,
+      completedJobs,
+      progressPercent: batch.jobs.length > 0 ? Math.round((completedJobs / batch.jobs.length) * 100) : 100,
+      registeredCount: batch.jobs.filter(j => j.status === 'REGISTERED').length,
+      duplicateCount: batch.jobs.filter(j => j.status === 'DUPLICATE').length,
+      reviewCount: batch.jobs.filter(j => j.status === 'NEEDS_REVIEW').length,
+      failedCount: batch.jobs.filter(j => j.status === 'FAILED').length,
+      summarySent: batch.summarySent,
+      jobs: batch.jobs
+    };
+  }
+
+  /**
+   * Retries a failed or needs-review job
+   */
+  public static async retryJob(jobId: string) {
+    const job = await prisma.imageProcessingJob.findUnique({ where: { id: jobId } });
+    if (!job) throw new Error('المهمة غير موجودة');
+
+    await prisma.imageProcessingJob.update({
+      where: { id: jobId },
+      data: {
+        status: 'QUEUED',
+        attempts: 0,
+        errorMessage: null
+      }
+    });
+
+    this.memoryQueue.push(job.id);
+    this.triggerProcessing();
+    return { success: true, message: 'تمت إعادة جدولة المهمة بنجاح' };
+  }
+}

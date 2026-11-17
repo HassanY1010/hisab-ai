@@ -31,6 +31,21 @@ export interface WhatsAppReviewParams {
   reason?: string;
 }
 
+export interface WhatsAppBatchSummaryParams {
+  totalReceived: number;
+  registeredCount: number;
+  duplicateCount: number;
+  reviewCount: number;
+  failedCount: number;
+  batchTotalInward: number;
+  batchTotalOutward: number;
+  batchNetBalance: number;
+  overallTotalInward: number;
+  overallTotalOutward: number;
+  overallNetBalance: number;
+  overallTotalCount: number;
+}
+
 export class WhatsAppResponseFormatter {
   /**
    * Masks a bank account to show only the last 4 digits for privacy and compliance:
@@ -203,5 +218,47 @@ export class WhatsAppResponseFormatter {
       '📌 لم تتأثر أي بيانات أو إجماليات مالية.',
       '▫️ يرجى إعادة المحاولة لاحقاً أو التواصل مع الدعم الفني.'
     ].join('\n');
+  }
+
+  /**
+   * Official Batch Processing Summary Template
+   */
+  public static formatBatchSummary(params: WhatsAppBatchSummaryParams): string {
+    const lines: string[] = [
+      '📊 *ملخص معالجة الدفعة البنكية*',
+      '',
+      '📋 *إحصائيات استلام ومعالجة الدفعة*',
+      `▫️ عدد الصور المستلمة: *${params.totalReceived}*`,
+      `▫️ العمليات المسجلة بنجاح: *${params.registeredCount}*`,
+      `▫️ الإشعارات المكررة (المحجوبة): *${params.duplicateCount}*`,
+      `▫️ إشعارات تحتاج مراجعة: *${params.reviewCount}*`,
+      `▫️ الإشعارات الفاشلة: *${params.failedCount}*`,
+      '',
+      '💰 *الموقف المالي الفعلي للدفعة*',
+      `▫️ إجمالي الوارد المسجل: *${params.batchTotalInward.toLocaleString('en-US')} SDG*`,
+      `▫️ إجمالي الصادر المسجل: *${params.batchTotalOutward.toLocaleString('en-US')} SDG*`,
+      `▫️ صافي فرق الدفعة: *${params.batchNetBalance.toLocaleString('en-US')} SDG*`,
+      '',
+      '📈 *الموقف المالي الإجمالي العام*',
+      `▫️ إجمالي الوارد العام: *${params.overallTotalInward.toLocaleString('en-US')} SDG*`,
+      `▫️ إجمالي الصادر العام: *${params.overallTotalOutward.toLocaleString('en-US')} SDG*`,
+      `▫️ صافي الرصيد العام: *${params.overallNetBalance.toLocaleString('en-US')} SDG*`,
+      `▫️ إجمالي العمليات الكلي: *${params.overallTotalCount}* عملية`,
+      '',
+      '📌 تم استخراج وتأكيد كافة الأرقام من قاعدة البيانات مباشرة.'
+    ];
+
+    if (params.failedCount > 0) {
+      lines.push('▫️ يمكن مراجعة أو إعادة معالجة الإشعارات الفاشلة بعد التحقق من جودة الصور.');
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Lightweight acknowledgment when multiple receipts are queued
+   */
+  public static formatQueueAcknowledgment(count: number, batchId: string): string {
+    return `📥 *تم استلام ${count} إشعار بنكي وجاري المعالجة الخلفية...*\n▫️ رقم الدفعة: \`${batchId.slice(-8)}\`\n▫️ سيتم تسجيل كل عملية وعرض النتائج والملخص تباعاً دون تعطيل المحادثة.`;
   }
 }

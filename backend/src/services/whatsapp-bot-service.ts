@@ -5,6 +5,7 @@ import { TesseractOcrAdapter } from './ocr/tesseract-adapter';
 import { SupabaseStorageService } from './storage/supabase-storage';
 import { WhatsAppResponseFormatter } from './whatsapp-response-formatter';
 import { ReceiptDateParser } from './ocr/receipt-date-parser';
+import { NotificationQueueService } from './notification-queue-service';
 import fs from 'fs';
 
 export class WhatsAppBotService {
@@ -37,6 +38,53 @@ export class WhatsAppBotService {
     } catch (err: any) {
       console.warn('[WhatsApp] Init default conversations skipped/failed:', err.message);
     }
+  }
+
+  /**
+   * Enqueues an incoming image or text message for non-blocking asynchronous processing
+   */
+  public static async enqueueMessage(
+    conversationId: string,
+    text: string,
+    imagePath?: string,
+    originalFilename?: string,
+    batchId?: string
+  ): Promise<{ userMessage: any; queued: boolean; jobId?: string; batchId?: string; botResponse?: any }> {
+    const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
+    if (!conversation) throw new Error('المحادثة غير موجودة');
+
+    // 1. If text only, handle synchronously for instant response
+    if (!imagePath && text && text.trim().length > 0) {
+      const res = await this.processMessage(conversationId, text);
+      return { userMessage: res.userMessage, botResponse: res.botResponse, queued: false };
+    }
+
+    // 2. If image attached, save user message immediately
+    const userMessage = await prisma.chatMessage.create({
+      data: {
+        conversationId,
+        sender: 'USER',
+        text: text || '📷 [صورة إشعار تحويل بنكي]',
+        mediaUrl: imagePath
+      }
+    });
+
+    // 3. Enqueue job into Background Notification Queue
+    const queueRes = await NotificationQueueService.enqueueJob({
+      conversationId,
+      direction: conversation.direction as 'INWARD' | 'OUTWARD',
+      imagePath: imagePath!,
+      originalFilename: originalFilename || 'receipt.jpg',
+      batchId,
+      userMessageId: userMessage.id
+    });
+
+    return {
+      userMessage,
+      queued: true,
+      jobId: queueRes.jobId,
+      batchId: queueRes.batchId
+    };
   }
 
   /**

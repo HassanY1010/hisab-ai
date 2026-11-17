@@ -129,10 +129,11 @@ export const api = {
   // WhatsApp Simulator
   getWhatsAppConversations: () => fetchJson('/whatsapp/conversations'),
   getWhatsAppMessages: (convId: string) => fetchJson(`/whatsapp/conversations/${convId}/messages`),
-  sendWhatsAppMessage: async (convId: string, text: string, imageFile?: File) => {
+  sendWhatsAppMessage: async (convId: string, text: string, imageFile?: File, batchId?: string) => {
     const formData = new FormData();
     if (text) formData.append('text', text);
     if (imageFile) formData.append('image', imageFile);
+    if (batchId) formData.append('batchId', batchId);
 
     const res = await fetch(`${API_BASE}/whatsapp/conversations/${convId}/messages`, {
       method: 'POST',
@@ -140,6 +141,20 @@ export const api = {
     });
     return await res.json();
   },
+  sendWhatsAppBatchMessages: async (convId: string, imageFiles: File[]) => {
+    const formData = new FormData();
+    imageFiles.forEach(file => {
+      formData.append('images', file);
+    });
+
+    const res = await fetch(`${API_BASE}/whatsapp/conversations/${convId}/batch-messages`, {
+      method: 'POST',
+      body: formData,
+    });
+    return await res.json();
+  },
+  getWhatsAppBatchStatus: (batchId: string) => fetchJson(`/whatsapp/batches/${batchId}/status`),
+  retryWhatsAppJob: (jobId: string) => fetchJson(`/whatsapp/jobs/${jobId}/retry`, { method: 'POST' }),
 
   // Samples
   getSamples: () => fetchJson('/samples'),

@@ -28,8 +28,12 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
   const [samples, setSamples] = useState<any[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [mobileTab, setMobileTab] = useState<'conversations' | 'chat'>('chat');
+  const [stagedFiles, setStagedFiles] = useState<File[]>([]);
   const [stagedImageFile, setStagedImageFile] = useState<File | null>(null);
   const [stagedImageUrl, setStagedImageUrl] = useState<string | null>(null);
+  const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
+  const [batchStatus, setBatchStatus] = useState<any | null>(null);
+  const [isSending, setIsSending] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -70,6 +74,33 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
       if (res.success) setSamples(res.data);
     }).catch(console.error);
   }, []);
+
+  // Live polling for background queue and batch completion
+  useEffect(() => {
+    if (!activeBatchId || !activeConv) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const statusRes = await api.getWhatsAppBatchStatus(activeBatchId);
+        if (statusRes.success) {
+          setBatchStatus(statusRes.data);
+          await loadMessages(activeConv.id);
+
+          if (statusRes.data.progressPercent >= 100 && statusRes.data.summarySent) {
+            onRefreshData();
+            setTimeout(() => {
+              setActiveBatchId(null);
+              setBatchStatus(null);
+            }, 3500);
+          }
+        }
+      } catch (err) {
+        console.warn('Batch poll error:', err);
+      }
+    }, 1500);
+
+    return () => clearInterval(interval);
+  }, [activeBatchId, activeConv?.id]);
 
   const loadConversations = async () => {
     try {
@@ -126,50 +157,91 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
     }
   };
 
+  /**
+   * Non-blocking rapid sample sender: immediately dispatches to background queue
+   * User can click multiple samples continuously without waiting!
+   */
   const handleSendSampleImage = async (filename: string) => {
-    if (!activeConv || isProcessing) return;
-    setIsProcessing(true);
+    if (!activeConv) return;
 
     try {
       const imgRes = await fetch(getAssetUrl(`/samples/${filename}`));
       const blob = await imgRes.blob();
       const file = new File([blob], filename, { type: 'image/jpeg' });
 
-      const res = await api.sendWhatsAppMessage(activeConv.id, '', file);
+      const res = await api.sendWhatsAppMessage(activeConv.id, '', file, activeBatchId || undefined);
       if (res && res.success !== false) {
+        if (res.data?.batchId) {
+          setActiveBatchId(res.data.batchId);
+        }
+        await loadMessages(activeConv.id);
+      }
+    } catch (err: any) {
+      console.error(`خطأ أثناء إرسال الإشعار: ${err.message}`);
+    }
+  };
+
+  /**
+   * Bulk launcher: sends all 6 real samples at once in a single batch
+   */
+  const handleSendAllSamples = async () => {
+    if (!activeConv || samples.length === 0 || isSending) return;
+    setIsSending(true);
+
+    try {
+      const files: File[] = [];
+      for (const s of samples) {
+        const imgRes = await fetch(getAssetUrl(`/samples/${s.filename}`));
+        const blob = await imgRes.blob();
+        files.push(new File([blob], s.filename, { type: 'image/jpeg' }));
+      }
+
+      const res = await api.sendWhatsAppBatchMessages(activeConv.id, files);
+      if (res && res.success !== false) {
+        if (res.data?.batchId) {
+          setActiveBatchId(res.data.batchId);
+        }
         await loadMessages(activeConv.id);
         onRefreshData();
       }
     } catch (err: any) {
-      alert(`خطأ أثناء معالجة الإشعار: ${err.message}`);
+      alert(`فشل إرسال الدفعة: ${err.message}`);
     } finally {
-      setIsProcessing(false);
+      setIsSending(false);
     }
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setStagedImageFile(file);
-    setStagedImageUrl(URL.createObjectURL(file));
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    if (files.length === 0) return;
+
+    setStagedFiles(files);
+    if (files.length === 1) {
+      setStagedImageFile(files[0]);
+      setStagedImageUrl(URL.createObjectURL(files[0]));
+    }
   };
 
-  const confirmSendStagedImage = async () => {
-    if (!stagedImageFile || !activeConv || isProcessing) return;
-    setIsProcessing(true);
-    const fileToSend = stagedImageFile;
+  const confirmSendStagedFiles = async () => {
+    if (stagedFiles.length === 0 || !activeConv || isSending) return;
+    setIsSending(true);
+    const filesToSend = [...stagedFiles];
     cancelStagedImage();
 
     try {
-      const res = await api.sendWhatsAppMessage(activeConv.id, '', fileToSend);
-      if (res && res.success !== false) {
-        await loadMessages(activeConv.id);
-        onRefreshData();
+      if (filesToSend.length === 1) {
+        const res = await api.sendWhatsAppMessage(activeConv.id, '', filesToSend[0], activeBatchId || undefined);
+        if (res?.data?.batchId) setActiveBatchId(res.data.batchId);
+      } else {
+        const res = await api.sendWhatsAppBatchMessages(activeConv.id, filesToSend);
+        if (res?.data?.batchId) setActiveBatchId(res.data.batchId);
       }
+      await loadMessages(activeConv.id);
+      onRefreshData();
     } catch (err: any) {
-      alert(`فشل رفع الإشعار: ${err.message}`);
+      alert(`فشل رفع الإشعارات: ${err.message}`);
     } finally {
-      setIsProcessing(false);
+      setIsSending(false);
     }
   };
 
@@ -177,6 +249,7 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
     if (stagedImageUrl) {
       URL.revokeObjectURL(stagedImageUrl);
     }
+    setStagedFiles([]);
     setStagedImageFile(null);
     setStagedImageUrl(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -280,19 +353,31 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
               <Sparkles className="w-3.5 h-3.5 text-teal-800 shrink-0" />
               <span>إرسال إشعار بنكي سريع (العينات الست):</span>
             </span>
+
+            {/* Bulk Send All 6 Samples Button */}
+            <button
+              type="button"
+              disabled={isSending}
+              onClick={handleSendAllSamples}
+              className="w-full mb-2.5 p-2 rounded-xl bg-gradient-to-r from-emerald-800 to-teal-800 hover:from-emerald-900 hover:to-teal-900 text-white font-black text-xs shadow-xs flex items-center justify-center space-x-1.5 space-x-reverse transition-all cursor-pointer active:scale-98"
+              title="إرسال جميع العينات الـ 6 في دفعة واحدة لاختبار المعالجة المتزامنة"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+              <span>{isSending ? 'جاري إرسال الدفعة...' : '🚀 إرسال كل العينات الـ 6 دفعة واحدة'}</span>
+            </button>
+
             <div className="grid grid-cols-2 gap-1.5 max-h-36 overflow-y-auto">
               {samples.map((s, idx) => {
                 const label = sampleAmounts[s.filename] || `صورة ${idx + 1}`;
                 return (
                   <button
                     key={s.filename}
-                    disabled={isProcessing}
                     onClick={() => {
                       handleSendSampleImage(s.filename);
                       setMobileTab('chat');
                     }}
-                    className="text-right text-[11px] p-2 rounded-xl border border-slate-300 hover:border-emerald-600 hover:bg-emerald-50 transition-all font-bold text-slate-900 truncate shadow-2xs cursor-pointer"
-                    title={`إرسال ${label}`}
+                    className="text-right text-[11px] p-2 rounded-xl border border-slate-300 hover:border-emerald-600 hover:bg-emerald-50 active:bg-emerald-100 transition-all font-bold text-slate-900 truncate shadow-2xs cursor-pointer"
+                    title={`إرسال سريع: ${label}`}
                   >
                     📄 {label}
                   </button>
@@ -326,6 +411,28 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
               تغيير القناة
             </button>
           </div>
+
+          {/* Live Background Batch Processing Indicator */}
+          {batchStatus && batchStatus.progressPercent < 100 && (
+            <div className="bg-emerald-50 border-b border-emerald-300 px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-xs font-bold text-emerald-950 shrink-0 shadow-2xs">
+              <div className="flex items-center space-x-2 space-x-reverse">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 animate-ping shrink-0" />
+                <span>⚡ جاري معالجة الدفعة في الخلفية: {batchStatus.completedJobs} من {batchStatus.totalJobs} ({batchStatus.progressPercent}%)</span>
+              </div>
+              <div className="flex items-center space-x-2 space-x-reverse text-[11px] font-black">
+                <span className="bg-emerald-200/80 text-emerald-900 px-2 py-0.5 rounded-md">مسجل: {batchStatus.registeredCount}</span>
+                {batchStatus.duplicateCount > 0 && (
+                  <span className="bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded-md">مكرر: {batchStatus.duplicateCount}</span>
+                )}
+                {batchStatus.reviewCount > 0 && (
+                  <span className="bg-blue-200/80 text-blue-900 px-2 py-0.5 rounded-md">مراجعة: {batchStatus.reviewCount}</span>
+                )}
+                {batchStatus.failedCount > 0 && (
+                  <span className="bg-rose-200/80 text-rose-900 px-2 py-0.5 rounded-md">فشل: {batchStatus.failedCount}</span>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Quick Command Pills */}
           <div className="bg-white/90 border-b border-slate-200 px-3 py-2 overflow-x-auto flex items-center space-x-1.5 space-x-reverse shrink-0">
@@ -418,21 +525,31 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Staged Image Preview Floating Banner */}
-          {stagedImageUrl && (
+          {/* Staged Image / Batch Preview Floating Banner */}
+          {stagedFiles.length > 0 && (
             <div className="bg-emerald-50 border-t-2 border-emerald-500 p-2.5 sm:p-3 flex items-center justify-between gap-3 shadow-md">
               <div className="flex items-center space-x-2.5 space-x-reverse min-w-0">
-                <img
-                  src={stagedImageUrl}
-                  alt="معاينة الإشعار"
-                  className="w-12 h-12 object-cover rounded-lg border border-emerald-300 shadow-2xs shrink-0"
-                />
+                {stagedImageUrl ? (
+                  <img
+                    src={stagedImageUrl}
+                    alt="معاينة الإشعار"
+                    className="w-12 h-12 object-cover rounded-lg border border-emerald-300 shadow-2xs shrink-0"
+                  />
+                ) : (
+                  <div className="w-12 h-12 rounded-lg bg-emerald-700 text-white flex items-center justify-center font-black text-sm shrink-0 shadow-2xs">
+                    {stagedFiles.length} 📄
+                  </div>
+                )}
                 <div className="min-w-0">
                   <span className="text-xs font-black text-emerald-950 block truncate">
-                    {stagedImageFile?.name || 'إشعار تحويل بنكي'}
+                    {stagedFiles.length === 1
+                      ? (stagedFiles[0].name || 'إشعار تحويل بنكي')
+                      : `دفعة إشعارات متعددة (${stagedFiles.length} صور مختارة)`}
                   </span>
                   <span className="text-[11px] text-emerald-800 font-bold">
-                    جاهز للمسح والتحليل بالذكاء الاصطناعي
+                    {stagedFiles.length === 1
+                      ? 'جاهز للمسح والتحليل بالذكاء الاصطناعي'
+                      : 'سيتم وضع جميع الإشعارات في قائمة المعالجة بالتوازي'}
                   </span>
                 </div>
               </div>
@@ -440,18 +557,18 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
               <div className="flex items-center space-x-1.5 space-x-reverse shrink-0">
                 <button
                   type="button"
-                  onClick={confirmSendStagedImage}
-                  disabled={isProcessing}
+                  onClick={confirmSendStagedFiles}
+                  disabled={isSending}
                   className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black px-3 py-2 rounded-xl flex items-center space-x-1 space-x-reverse shadow-xs cursor-pointer touch-target"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  <span>تأكيد وإرسال</span>
+                  <span>{isSending ? 'جاري الإرسال...' : (stagedFiles.length > 1 ? `إرسال الدفعة (${stagedFiles.length})` : 'تأكيد وإرسال')}</span>
                 </button>
                 <button
                   type="button"
                   onClick={cancelStagedImage}
                   className="p-2 text-slate-500 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer touch-target flex items-center justify-center"
-                  title="إلغاء الصورة"
+                  title="إلغاء الاختيار"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -468,11 +585,12 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
               }}
               className="flex items-center space-x-1.5 sm:space-x-2 space-x-reverse"
             >
-              {/* Gallery / File Picker */}
+              {/* Gallery / File Picker (Multiple selection supported) */}
               <input
                 type="file"
                 ref={fileInputRef}
                 accept="image/*"
+                multiple
                 onChange={handleFileSelect}
                 className="hidden"
               />

@@ -1,4 +1,4 @@
-import { prisma } from './db';
+import { prisma, withDbRetry } from './db';
 import { BankakReceiptParser } from './ocr/bankak-receipt-parser';
 import { Prisma } from '@prisma/client';
 
@@ -64,101 +64,154 @@ export class TransactionService {
 
     const decimalAmount = new Prisma.Decimal(numAmount);
 
-    return await prisma.$transaction(async (tx) => {
-      // 1. Look for existing transaction with normalized TxNumber
-      const existingTx = await tx.transaction.findUnique({
-        where: { normalizedTxNumber }
-      });
+    try {
+      return await withDbRetry(() => prisma.$transaction(async (tx) => {
+        // 1. Look for existing transaction with normalized TxNumber
+        const existingTx = await tx.transaction.findUnique({
+          where: { normalizedTxNumber }
+        });
 
-      if (existingTx) {
-        // DUPLICATE DETECTED!
-        const existingAmount = Number(existingTx.amount);
-        const amountMismatch = Math.abs(existingAmount - numAmount) > 0.01;
-        
-        const duplicateAttempt = await tx.duplicateAttempt.create({
+        if (existingTx) {
+          // DUPLICATE DETECTED!
+          const existingAmount = Number(existingTx.amount);
+          const amountMismatch = Math.abs(existingAmount - numAmount) > 0.01;
+          
+          const duplicateAttempt = await tx.duplicateAttempt.create({
+            data: {
+              transactionNumber: input.transactionNumber,
+              originalTransactionId: existingTx.id,
+              attemptedImagePath: input.imagePath,
+              storageKey: input.storageKey,
+              extractedAmount: decimalAmount,
+              reviewStatus: 'DETECTED',
+              notes: amountMismatch
+                ? `تحذير تكرار: المبلغ المستخرج (${numAmount.toLocaleString()} SDG) يختلف عن المبلغ المسجل الأصلي (${existingAmount.toLocaleString()} SDG)`
+                : `محاولة تسجيل مكررة لنفس رقم العملية (${normalizedTxNumber})`
+            }
+          });
+
+          await tx.auditLog.create({
+            data: {
+              action: 'DUPLICATE_ATTEMPT_DETECTED',
+              entityType: 'Transaction',
+              entityId: existingTx.id,
+              details: JSON.stringify({
+                transactionNumber: input.transactionNumber,
+                normalizedTxNumber,
+                attemptedAmount: numAmount,
+                originalAmount: existingAmount,
+                originalDate: existingTx.createdAt,
+                amountMismatch,
+                attemptId: duplicateAttempt.id
+              })
+            }
+          });
+
+          return {
+            status: 'DUPLICATE',
+            message: amountMismatch
+              ? `تحذير شديد: العملية رقم ${normalizedTxNumber} مسجلة مسبقاً بمبلغ مختلف (${existingAmount.toLocaleString()} مقابل ${numAmount.toLocaleString()}). لم يُضف المبلغ للإجمالي!`
+              : `تنبيه: العملية رقم ${normalizedTxNumber} مسجلة مسبقاً بتاريخ ${new Date(existingTx.createdAt).toLocaleString('ar-EG')}. تم رفض التكرار ولم يُضف المبلغ للإجمالي.`,
+            duplicateDetails: {
+              originalTransaction: existingTx,
+              attemptedAmount: numAmount,
+              amountMismatch,
+              attemptId: duplicateAttempt.id
+            }
+          };
+        }
+
+        // 2. Insert new valid unique transaction
+        const createdTx = await tx.transaction.create({
           data: {
             transactionNumber: input.transactionNumber,
-            originalTransactionId: existingTx.id,
-            attemptedImagePath: input.imagePath,
+            normalizedTxNumber,
+            amount: decimalAmount,
+            direction: input.direction,
+            senderAccount: input.senderAccount,
+            receiverAccount: input.receiverAccount,
+            beneficiaryName: input.beneficiaryName,
+            transactionDate: input.transactionDate || null,
+            imagePath: input.imagePath,
             storageKey: input.storageKey,
-            extractedAmount: decimalAmount,
-            reviewStatus: 'DETECTED',
-            notes: amountMismatch
-              ? `تحذير تكرار: المبلغ المستخرج (${numAmount.toLocaleString()} SDG) يختلف عن المبلغ المسجل الأصلي (${existingAmount.toLocaleString()} SDG)`
-              : `محاولة تسجيل مكررة لنفس رقم العملية (${normalizedTxNumber})`
+            extractedText: input.extractedText,
+            rawOcrJson: input.rawOcrJson,
+            ocrStatus: input.ocrStatus || 'SUCCESS',
+            verificationStatus: input.verificationStatus || 'VERIFIED'
           }
         });
 
         await tx.auditLog.create({
           data: {
-            action: 'DUPLICATE_ATTEMPT_DETECTED',
+            action: 'TRANSACTION_CREATED',
             entityType: 'Transaction',
-            entityId: existingTx.id,
+            entityId: createdTx.id,
             details: JSON.stringify({
-              transactionNumber: input.transactionNumber,
-              normalizedTxNumber,
-              attemptedAmount: numAmount,
-              originalAmount: existingAmount,
-              originalDate: existingTx.createdAt,
-              amountMismatch,
-              attemptId: duplicateAttempt.id
+              transactionNumber: createdTx.transactionNumber,
+              amount: numAmount,
+              direction: createdTx.direction
             })
           }
         });
 
         return {
-          status: 'DUPLICATE',
-          message: amountMismatch
-            ? `تحذير شديد: العملية رقم ${normalizedTxNumber} مسجلة مسبقاً بمبلغ مختلف (${existingAmount.toLocaleString()} مقابل ${numAmount.toLocaleString()}). لم يُضف المبلغ للإجمالي!`
-            : `تنبيه: العملية رقم ${normalizedTxNumber} مسجلة مسبقاً بتاريخ ${new Date(existingTx.createdAt).toLocaleString('ar-EG')}. تم رفض التكرار ولم يُضف المبلغ للإجمالي.`,
-          duplicateDetails: {
-            originalTransaction: existingTx,
-            attemptedAmount: numAmount,
-            amountMismatch,
-            attemptId: duplicateAttempt.id
-          }
+          status: 'SUCCESS',
+          message: `تم تسجيل العملية رقم ${normalizedTxNumber} بنجاح بمبلغ ${numAmount.toLocaleString()} SDG.`,
+          transaction: createdTx
         };
+      }, { maxWait: 20000, timeout: 35000 }));
+    } catch (err: any) {
+      // Thread-safe concurrency: Handle unique constraint violation (P2002) when two identical transactions hit simultaneously
+      if (err.code === 'P2002' || (err.message && err.message.includes('Unique constraint'))) {
+        const raceExisting = await withDbRetry(() => prisma.transaction.findUnique({
+          where: { normalizedTxNumber }
+        }));
+
+        if (raceExisting) {
+          const existingAmount = Number(raceExisting.amount);
+          const amountMismatch = Math.abs(existingAmount - numAmount) > 0.01;
+
+          const duplicateAttempt = await withDbRetry(() => prisma.duplicateAttempt.create({
+            data: {
+              transactionNumber: input.transactionNumber,
+              originalTransactionId: raceExisting.id,
+              attemptedImagePath: input.imagePath,
+              storageKey: input.storageKey,
+              extractedAmount: decimalAmount,
+              reviewStatus: 'DETECTED',
+              notes: `تم رصد ومطابقة التكرار المتزامن للعملية (${normalizedTxNumber}) بنجاح (Concurrency Race Protected)`
+            }
+          }));
+
+          await withDbRetry(() => prisma.auditLog.create({
+            data: {
+              action: 'CONCURRENT_DUPLICATE_RACE_DETECTED',
+              entityType: 'Transaction',
+              entityId: raceExisting.id,
+              details: JSON.stringify({
+                transactionNumber: input.transactionNumber,
+                normalizedTxNumber,
+                attemptedAmount: numAmount,
+                originalAmount: existingAmount,
+                attemptId: duplicateAttempt.id
+              })
+            }
+          }));
+
+          return {
+            status: 'DUPLICATE',
+            message: `تنبيه: العملية رقم ${normalizedTxNumber} مسجلة مسبقاً. تم حجب التكرار المتزامن وحماية الحسابات المالية.`,
+            duplicateDetails: {
+              originalTransaction: raceExisting,
+              attemptedAmount: numAmount,
+              amountMismatch,
+              attemptId: duplicateAttempt.id
+            }
+          };
+        }
       }
-
-      // 2. Insert new valid unique transaction
-      const createdTx = await tx.transaction.create({
-        data: {
-          transactionNumber: input.transactionNumber,
-          normalizedTxNumber,
-          amount: decimalAmount,
-          direction: input.direction,
-          senderAccount: input.senderAccount,
-          receiverAccount: input.receiverAccount,
-          beneficiaryName: input.beneficiaryName,
-          transactionDate: input.transactionDate || null,
-          imagePath: input.imagePath,
-          storageKey: input.storageKey,
-          extractedText: input.extractedText,
-          rawOcrJson: input.rawOcrJson,
-          ocrStatus: input.ocrStatus || 'SUCCESS',
-          verificationStatus: input.verificationStatus || 'VERIFIED'
-        }
-      });
-
-      await tx.auditLog.create({
-        data: {
-          action: 'TRANSACTION_CREATED',
-          entityType: 'Transaction',
-          entityId: createdTx.id,
-          details: JSON.stringify({
-            transactionNumber: createdTx.transactionNumber,
-            amount: numAmount,
-            direction: createdTx.direction
-          })
-        }
-      });
-
-      return {
-        status: 'SUCCESS',
-        message: `تم تسجيل العملية رقم ${normalizedTxNumber} بنجاح بمبلغ ${numAmount.toLocaleString()} SDG.`,
-        transaction: createdTx
-      };
-    }, { maxWait: 20000, timeout: 35000 });
+      throw err;
+    }
   }
 
   /**
