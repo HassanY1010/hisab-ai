@@ -167,6 +167,20 @@ whatsappRouter.post('/conversations/:id/batch-messages', upload.array('images', 
   }
 });
 
+function getSamplesDirectory(): string {
+  const candidates = [
+    path.resolve(process.cwd(), 'sample-data/bank-notifications'),
+    path.resolve(process.cwd(), '../sample-data/bank-notifications'),
+    path.resolve(__dirname, '../../../sample-data/bank-notifications'),
+    path.resolve(__dirname, '../../sample-data/bank-notifications'),
+    path.resolve(__dirname, '../../../../sample-data/bank-notifications'),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return candidates[0];
+}
+
 /**
  * Instant Sample Launcher (Server-side Staging)
  * Allows sending sample receipts immediately without downloading/re-uploading large images over cellular network
@@ -176,7 +190,7 @@ whatsappRouter.post('/conversations/:id/send-samples', async (req, res) => {
     const conversationId = String(req.params.id);
     const requestedFiles: string[] = req.body.filenames;
 
-    const samplesDir = path.resolve(__dirname, '../../../sample-data/bank-notifications');
+    const samplesDir = getSamplesDirectory();
     let targetFiles: string[] = [];
 
     if (Array.isArray(requestedFiles) && requestedFiles.length > 0) {

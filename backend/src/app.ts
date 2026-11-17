@@ -50,8 +50,22 @@ if (!fs.existsSync(uploadsDir)) {
 }
 app.use('/uploads', express.static(uploadsDir));
 
-// Serve sample bank notifications
-const samplesDir = path.resolve(__dirname, '../../sample-data/bank-notifications');
+// Candidate paths for sample bank notifications across dev, test, and Railway environments
+export function getSamplesDirectory(): string {
+  const candidates = [
+    path.resolve(process.cwd(), 'sample-data/bank-notifications'),
+    path.resolve(process.cwd(), '../sample-data/bank-notifications'),
+    path.resolve(__dirname, '../../sample-data/bank-notifications'),
+    path.resolve(__dirname, '../../../sample-data/bank-notifications'),
+    path.resolve(__dirname, '../../../../sample-data/bank-notifications'),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return candidates[0];
+}
+
+const samplesDir = getSamplesDirectory();
 app.use('/samples', express.static(samplesDir));
 
 // Sample files listing API for convenient demoing

@@ -191,6 +191,7 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
         if (res.data?.batchId) {
           setActiveBatchId(res.data.batchId);
         }
+        setMobileTab('chat');
         await loadMessages(activeConv.id);
         onRefreshData();
       }
