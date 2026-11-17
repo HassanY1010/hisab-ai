@@ -427,7 +427,7 @@ export class NotificationQueueService {
       }
 
       // 6. Finalize Job Status
-      await prisma.imageProcessingJob.update({
+      await withDbRetry(() => prisma.imageProcessingJob.update({
         where: { id: jobId },
         data: {
           status: finalJobStatus,
@@ -438,7 +438,7 @@ export class NotificationQueueService {
           botMessageId: botMsgId,
           completedAt: new Date()
         }
-      });
+      }));
 
       await this.handleBatchProgress(job.batchId);
 
@@ -487,7 +487,8 @@ export class NotificationQueueService {
           });
         } catch {}
 
-        if (currentJob?.conversationId) {
+        // Post failure bubble ONLY in single notification mode, NEVER in bulk batches!
+        if (!isBulkBatch && currentJob?.conversationId) {
           try {
             await prisma.chatMessage.create({
               data: {
