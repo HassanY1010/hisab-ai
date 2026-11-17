@@ -147,8 +147,8 @@ export class BankakReceiptParser {
     }
 
     // 5. Beneficiary / Sender / Client Name extraction
-    // Comprehensive prefix regex supporting all Bankak labels and OCR variants (e.g. 5 لمرسل, إسم المستفيد, إسم المرسل إليه)
-    const prefixRegex = /^(?:[\d\W_]*)(?:(?:إ?سم|اسم|لسم|أسم)\s*)?(?:المرسل|لمرسل|مرسل|المستفيد|لمستفيد|مستفيد|المحول|لمحول|محول|الطرف\s*المستلم|الطرف\s*الآخر|العميل|الحساب)(?:\s*(?:إ?ليه|اليه|له))?[:\s|\-]*/i;
+    // Comprehensive prefix regex supporting all Bankak labels and OCR variants (e.g. 5 لمرسل, إسم المر, إسم المستفيد, إسم المرسل إليه)
+    const prefixRegex = /^(?:[\d\W_]*)(?:(?:إ?سم|اسم|لسم|أسم)\s*)?(?:المرسل|لمرسل|مرسل|المر|المستفيد|لمستفيد|مستفيد|المحول|لمحول|محول|الطرف\s*المستلم|الطرف\s*الآخر|العميل|الحساب)(?:\s*(?:إ?ليه|اليه|له))?[:\s|\-]*/i;
 
     const isNonName = (val: string) => {
       const v = val.trim().toLowerCase();
