@@ -101,24 +101,23 @@ whatsappRouter.post('/conversations/:id/batch-messages', upload.array('images', 
 
     // 1. Create ALL user messages first so they are guaranteed to appear first in chronological order
     const baseTime = Date.now();
-    const createdUserMessages: { file: Express.Multer.File; userMessageId: string }[] = [];
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const userMessage = await prisma.chatMessage.create({
-        data: {
-          conversationId,
-          sender: 'USER',
-          text: `📷 [إشعار تحويل بنكي: ${file.originalname}]`,
-          mediaUrl: file.path,
-          createdAt: new Date(baseTime + i * 20)
-        }
-      });
-      createdUserMessages.push({ file, userMessageId: userMessage.id });
-    }
+    const createdUserMessages = await Promise.all(
+      files.map(async (file, i) => {
+        const userMessage = await withDbRetry(() => prisma.chatMessage.create({
+          data: {
+            conversationId,
+            sender: 'USER',
+            text: `📷 [إشعار تحويل بنكي: ${file.originalname}]`,
+            mediaUrl: file.path,
+            createdAt: new Date(baseTime + i * 20)
+          }
+        }));
+        return { file, userMessageId: userMessage.id };
+      })
+    );
 
     // 2. Create the temporary progress message strictly AFTER all user messages
-    const progressMessage = await prisma.chatMessage.create({
+    const progressMessage = await withDbRetry(() => prisma.chatMessage.create({
       data: {
         conversationId,
         sender: 'BOT',
@@ -131,28 +130,26 @@ whatsappRouter.post('/conversations/:id/batch-messages', upload.array('images', 
         }),
         createdAt: new Date(baseTime + files.length * 20 + 50)
       }
-    });
+    }));
 
-    await prisma.notificationBatch.update({
+    await withDbRetry(() => prisma.notificationBatch.update({
       where: { id: batch.id },
       data: { summaryMessageId: progressMessage.id }
-    });
+    }));
 
-    const jobs: any[] = [];
-
-    // 3. Enqueue each image rapidly
-    for (const item of createdUserMessages) {
-      const queueRes = await NotificationQueueService.enqueueJob({
-        conversationId,
-        direction: conversation.direction as 'INWARD' | 'OUTWARD',
-        imagePath: item.file.path,
-        originalFilename: item.file.originalname,
-        batchId: batch.id,
-        userMessageId: item.userMessageId
-      });
-
-      jobs.push(queueRes);
-    }
+    // 3. Enqueue each image rapidly in parallel
+    const jobs = await Promise.all(
+      createdUserMessages.map(item =>
+        NotificationQueueService.enqueueJob({
+          conversationId,
+          direction: conversation.direction as 'INWARD' | 'OUTWARD',
+          imagePath: item.file.path,
+          originalFilename: item.file.originalname,
+          batchId: batch.id,
+          userMessageId: item.userMessageId
+        })
+      )
+    );
 
     res.json({
       success: true,

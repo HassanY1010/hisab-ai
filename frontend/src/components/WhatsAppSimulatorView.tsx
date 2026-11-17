@@ -189,12 +189,14 @@ export const WhatsAppSimulatorView: React.FC<{ onRefreshData: () => void }> = ({
     setIsSending(true);
 
     try {
-      const files: File[] = [];
-      for (const s of samples) {
-        const imgRes = await fetch(getAssetUrl(`/samples/${s.filename}`));
-        const blob = await imgRes.blob();
-        files.push(new File([blob], s.filename, { type: 'image/jpeg' }));
-      }
+      // Fetch all sample files in parallel for instant bulk staging
+      const files: File[] = await Promise.all(
+        samples.map(async (s) => {
+          const imgRes = await fetch(getAssetUrl(`/samples/${s.filename}`));
+          const blob = await imgRes.blob();
+          return new File([blob], s.filename, { type: 'image/jpeg' });
+        })
+      );
 
       const res = await api.sendWhatsAppBatchMessages(activeConv.id, files);
       if (res && res.success !== false) {
