@@ -97,6 +97,17 @@ export class TesseractOcrAdapter implements IOcrEngine {
           parsed.normalizedTxNumber = sparseParsed.normalizedTxNumber;
           parsed.txConfidence = sparseParsed.txConfidence || 0.90;
         }
+        if (!parsed.hasDate && sparseParsed.hasDate) {
+          parsed.hasDate = sparseParsed.hasDate;
+          parsed.hasTime = sparseParsed.hasTime;
+          parsed.transactionDate = sparseParsed.transactionDate;
+          parsed.rawDateStr = sparseParsed.rawDateStr;
+          parsed.rawTimeStr = sparseParsed.rawTimeStr;
+          parsed.rawDateTimeStr = sparseParsed.rawDateTimeStr;
+          parsed.formattedDate = sparseParsed.formattedDate;
+          parsed.formattedTime = sparseParsed.formattedTime;
+          parsed.formattedDateTime = sparseParsed.formattedDateTime;
+        }
         parsed.rawText = (parsed.rawText || '') + '\n' + sparseRes.text;
       }
     } catch {
