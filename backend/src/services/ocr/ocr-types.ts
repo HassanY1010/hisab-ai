@@ -17,6 +17,9 @@ export interface ParsedBankakReceipt {
   receiverAccount: string | null;
   beneficiaryName: string | null;
   confidence: number;
+  txConfidence?: number;
+  amountConfidence?: number;
+  nameConfidence?: number;
   status: 'SUCCESS' | 'NEEDS_REVIEW' | 'FAILED';
   rawText: string;
   engine: string;

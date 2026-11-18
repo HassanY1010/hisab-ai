@@ -85,11 +85,30 @@ export class TesseractOcrAdapter implements IOcrEngine {
         const sparseParsed = BankakReceiptParser.parse(sparseRes.text, this.name, this.version);
         if (sparseParsed.beneficiaryName) {
           parsed.beneficiaryName = sparseParsed.beneficiaryName;
-          parsed.rawText = (parsed.rawText || '') + '\n' + sparseRes.text;
+          parsed.nameConfidence = sparseParsed.nameConfidence || 0.90;
         }
+        if (!parsed.amount && sparseParsed.amount) {
+          parsed.amount = sparseParsed.amount;
+          parsed.amountRaw = sparseParsed.amountRaw;
+          parsed.amountConfidence = sparseParsed.amountConfidence || 0.90;
+        }
+        if (!parsed.transactionNumber && sparseParsed.transactionNumber) {
+          parsed.transactionNumber = sparseParsed.transactionNumber;
+          parsed.normalizedTxNumber = sparseParsed.normalizedTxNumber;
+          parsed.txConfidence = sparseParsed.txConfidence || 0.90;
+        }
+        parsed.rawText = (parsed.rawText || '') + '\n' + sparseRes.text;
       }
     } catch {
       // Fallback gracefully to original parsed receipt
+    }
+
+    if (parsed.normalizedTxNumber && parsed.amount && parsed.amount >= 1000 && parsed.hasDate) {
+      parsed.status = 'SUCCESS';
+    } else if (parsed.normalizedTxNumber || (parsed.amount && parsed.amount > 0)) {
+      parsed.status = 'NEEDS_REVIEW';
+    } else {
+      parsed.status = 'FAILED';
     }
 
     // If tesseract internal confidence is available, blend it

@@ -15,34 +15,37 @@ export class BankakReceiptParser {
 
   /**
    * Normalizes amount string into a float number:
-   * Handles commas, spaces, and decimal points.
+   * Handles commas, spaces, dot thousands separators, and decimal points.
    * e.g. "1,000,000.00" -> 1000000.0
-   * e.g. "1943,000.00" -> 1943000.0
+   * e.g. "1.943.000.00" -> 1943000.0
+   * e.g. "2,000,000" -> 2000000.0
+   * e.g. "200.000" -> 200000.0 (prevents parseFloat treating .000 as decimal .0)
    * e.g. "500,000" -> 500000.0
    */
   public static parseAmount(raw: string): number | null {
     if (!raw) return null;
-    const cleanStr = raw.replace(/[\u200E\u200F\u202A-\u202E]/g, '')
-                        .replace(/[^\d.,]/g, '')
-                        .trim();
-    if (!cleanStr) return null;
+    let s = raw.replace(/[\u200E\u200F\u202A-\u202E]/g, '').trim();
+    s = s.replace(/[^\d.,]/g, '').trim();
+    if (!s) return null;
 
-    let normalized = cleanStr;
-    if (normalized.includes(',') && normalized.includes('.')) {
-      normalized = normalized.replace(/,/g, '');
-    } else if (normalized.includes(',')) {
-      const parts = normalized.split(',');
-      if (parts.length > 1 && parts[parts.length - 1].length === 3) {
-        normalized = normalized.replace(/,/g, '');
-      } else if (parts.length === 2 && parts[1].length <= 2) {
-        normalized = normalized.replace(',', '.');
-      } else {
-        normalized = normalized.replace(/,/g, '');
+    // Ending with 2-digit decimal e.g. .00 or ,00
+    if (/[.,]\d{2}$/.test(s)) {
+      const intPart = s.slice(0, -3).replace(/[.,]/g, '');
+      const decPart = s.slice(-2);
+      const val = parseFloat(intPart + '.' + decPart);
+      if (!isNaN(val) && val >= 100) {
+        return val;
       }
     }
 
-    const val = parseFloat(normalized);
-    return isNaN(val) ? null : val;
+    // No decimals, all separators are thousands (e.g. 200.000, 2,000,000, 500,000)
+    const intOnly = s.replace(/[.,]/g, '');
+    const val = parseFloat(intOnly);
+    if (!isNaN(val) && val >= 100) {
+      return val;
+    }
+
+    return null;
   }
 
   /**
@@ -59,50 +62,83 @@ export class BankakReceiptParser {
     let receiverAccount: string | null = null;
     let beneficiaryName: string | null = null;
 
-    // 1. Transaction Number Extraction
+      // 1. Transaction Number Extraction
+    let txConfidence = 0;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (/رقم\s*العملية/i.test(line) || /العملية/i.test(line)) {
-        const match = line.match(/\b(20\d{8,10}|\d{10,12})\b/);
+        let match = line.match(/\b((?:20|21)\d{8,10}|\d{10,12})\b/);
         if (match) {
           transactionNumber = match[1];
+          txConfidence = 0.99;
           break;
         }
         if (i + 1 < lines.length) {
-          const nextMatch = lines[i + 1].match(/\b(20\d{8,10}|\d{10,12})\b/);
+          const nextMatch = lines[i + 1].match(/\b((?:20|21)\d{8,10}|\d{10,12})\b/);
           if (nextMatch) {
             transactionNumber = nextMatch[1];
+            txConfidence = 0.95;
+            break;
+          }
+        }
+        if (i > 0) {
+          const prevMatch = lines[i - 1].match(/\b((?:20|21)\d{8,10}|\d{10,12})\b/);
+          if (prevMatch) {
+            transactionNumber = prevMatch[1];
+            txConfidence = 0.95;
             break;
           }
         }
       }
     }
 
-    // Fallback: 11-digit number starting with 20 anywhere in text
+    // Fallback: 11-digit number starting with 20 or 21 anywhere in text
     if (!transactionNumber) {
-      const fallbackMatch = rawText.match(/\b(20\d{9})\b/);
+      const fallbackMatch = rawText.match(/\b((?:20|21)\d{9})\b/);
       if (fallbackMatch) {
         transactionNumber = fallbackMatch[1];
+        txConfidence = 0.90;
       }
     }
 
     // 2. Amount Extraction
+    let amountConfidence = 0;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (/المبلغ/i.test(line)) {
         // Greedily match amount string (digits, commas, and decimals)
-        const match = line.match(/([\d,]+(?:\.\d+)?)/);
+        const match = line.match(/([\d.,\s]*\d|\d+)/);
         if (match) {
-          amountRaw = match[1];
-          amount = this.parseAmount(amountRaw);
-          break;
+          const p = this.parseAmount(match[1]);
+          if (p && p >= 100) {
+            amountRaw = match[1];
+            amount = p;
+            amountConfidence = 0.99;
+            break;
+          }
         }
         if (i + 1 < lines.length) {
-          const nextMatch = lines[i + 1].match(/([\d,]+(?:\.\d+)?)/);
+          const nextMatch = lines[i + 1].match(/([\d.,\s]*\d|\d+)/);
           if (nextMatch) {
-            amountRaw = nextMatch[1];
-            amount = this.parseAmount(amountRaw);
-            break;
+            const p = this.parseAmount(nextMatch[1]);
+            if (p && p >= 100) {
+              amountRaw = nextMatch[1];
+              amount = p;
+              amountConfidence = 0.95;
+              break;
+            }
+          }
+        }
+        if (i > 0) {
+          const prevMatch = lines[i - 1].match(/([\d.,\s]*\d|\d+)/);
+          if (prevMatch) {
+            const p = this.parseAmount(prevMatch[1]);
+            if (p && p >= 100) {
+              amountRaw = prevMatch[1];
+              amount = p;
+              amountConfidence = 0.95;
+              break;
+            }
           }
         }
       }
@@ -110,12 +146,15 @@ export class BankakReceiptParser {
 
     // Fallback: search for numbers with thousands commas or decimal points
     if (amount === null) {
-      const fallbackMatches = [...rawText.matchAll(/([\d,]+(?:\.\d{2})?)/g)];
+      const fallbackMatches = [...rawText.matchAll(/([\d][\d.,]{3,}\d)/g)];
       for (const m of fallbackMatches) {
+        const s = m[1].replace(/[^\d]/g, '');
+        if (s === transactionNumber || s.length === 11 || s.length >= 15) continue;
         const parsed = this.parseAmount(m[1]);
-        if (parsed && parsed >= 1000) {
+        if (parsed && parsed >= 1000 && parsed <= 500000000) {
           amount = parsed;
           amountRaw = m[1];
+          amountConfidence = 0.75;
           break;
         }
       }
@@ -175,17 +214,28 @@ export class BankakReceiptParser {
     };
 
     // Strategy 1: Comprehensive keyword extraction
+    let nameConfidence = 0;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       // Ignore footer UI buttons
       if (/إضافة\s*مستفيد|اضافة\s*مستفيد/i.test(line)) continue;
 
-      if (prefixRegex.test(line)) {
+      if (prefixRegex.test(line) || /المرسل|المستفيد/i.test(line)) {
         const stripped = line.replace(prefixRegex, '').trim();
         const cleaned = cleanName(stripped);
         if (cleaned.length >= 3 && !isNonName(cleaned)) {
           beneficiaryName = cleaned;
+          nameConfidence = 0.95;
           break;
+        }
+        // Check previous line in case value preceded label
+        if (i > 0) {
+          const prev = cleanName(lines[i - 1]);
+          if (prev.length >= 3 && !isNonName(prev)) {
+            beneficiaryName = prev;
+            nameConfidence = 0.90;
+            break;
+          }
         }
         // Check following 1-2 lines in case label and name are on separate lines
         for (let j = 1; j <= 2 && i + j < lines.length; j++) {
@@ -193,6 +243,7 @@ export class BankakReceiptParser {
           const next = cleanName(lines[i + j]);
           if (next.length >= 3 && !isNonName(next)) {
             beneficiaryName = next;
+            nameConfidence = 0.90;
             break;
           }
         }
@@ -219,6 +270,7 @@ export class BankakReceiptParser {
           const candidate = cleanName(stripped);
           if (candidate.length >= 3 && !isNonName(candidate) && candidate.split(' ').length >= 2) {
             beneficiaryName = candidate;
+            nameConfidence = 0.90;
             break;
           }
         }
@@ -237,7 +289,7 @@ export class BankakReceiptParser {
     }
 
     let status: 'SUCCESS' | 'NEEDS_REVIEW' | 'FAILED' = 'FAILED';
-    if (normalizedTxNumber && amount !== null && amount > 0 && parsedDateTime.hasDate) {
+    if (normalizedTxNumber && amount !== null && amount >= 1000 && parsedDateTime.hasDate && txConfidence >= 0.8 && amountConfidence >= 0.8) {
       status = 'SUCCESS';
     } else if (normalizedTxNumber || (amount !== null && amount > 0)) {
       status = 'NEEDS_REVIEW';
@@ -262,6 +314,9 @@ export class BankakReceiptParser {
       receiverAccount,
       beneficiaryName,
       confidence,
+      txConfidence,
+      amountConfidence,
+      nameConfidence,
       status,
       rawText,
       engine: engineName,
